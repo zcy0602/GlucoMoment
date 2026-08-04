@@ -2,13 +2,16 @@
 //  GlucoseTrendDemoView.swift
 //  GlucoMoment
 //
-//  Created by zcy0602 on 2026/6/27.
-//
 
+import SwiftData
 import SwiftUI
 
 struct GlucoseTrendDemoView: View {
-    @State private var viewModel = GlucoseTrendViewModel()
+    @State private var viewModel: GlucoseTrendViewModel
+
+    init(repository: any GlucoseRepository) {
+        _viewModel = State(initialValue: GlucoseTrendViewModel(repository: repository))
+    }
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -21,15 +24,38 @@ struct GlucoseTrendDemoView: View {
             }
             .pickerStyle(.segmented)
 
-            TrendChartCard(viewModel: viewModel)
+            if viewModel.readings.isEmpty {
+                ContentUnavailableView {
+                    Label("暂无趋势数据", systemImage: "chart.xyaxis.line")
+                } description: {
+                    Text("在今日页记录血糖后，这里会按 mmol/L 展示趋势。")
+                }
+                .padding(.vertical, 18)
+                .frame(maxWidth: .infinity)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            } else {
+                TrendChartCard(viewModel: viewModel)
+            }
+
             TrendMetricsGrid(metrics: viewModel.metrics)
 
-            SectionHeader("洞察")
-            VStack(spacing: 10) {
-                ForEach(viewModel.insights) { insight in
-                    InsightRow(insight: insight)
+            if !viewModel.insights.isEmpty {
+                SectionHeader("数据说明")
+                VStack(spacing: 10) {
+                    ForEach(viewModel.insights) { insight in
+                        InsightRow(insight: insight)
+                    }
                 }
             }
+        }
+        .refreshable(action: viewModel.load)
+        .task(viewModel.load)
+        .onChange(of: viewModel.selectedRange) {
+            viewModel.load()
+        }
+        .alert("读取失败", isPresented: $viewModel.isShowingError) {
+        } message: {
+            Text(viewModel.errorMessage ?? "请稍后重试。")
         }
     }
 }
@@ -40,7 +66,7 @@ private struct TrendChartCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                SectionHeader(viewModel.trendTitle, subtitle: "目标区间 70-180 mg/dL")
+                SectionHeader(viewModel.trendTitle, subtitle: "目标范围 3.9–10.0 mmol/L")
                 Spacer()
                 PillTag(title: viewModel.statusLabel, tint: viewModel.statusTint)
             }
@@ -51,8 +77,8 @@ private struct TrendChartCard: View {
             .frame(height: 210)
 
             HStack {
-                ForEach(viewModel.readings) { reading in
-                    Text(reading.hour.prefix(2))
+                ForEach(axisReadings) { reading in
+                    Text(viewModel.axisLabel(for: reading))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
@@ -61,6 +87,17 @@ private struct TrendChartCard: View {
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var axisReadings: [GlucoseReading] {
+        guard viewModel.readings.count > 6 else { return viewModel.readings }
+        let step = max(viewModel.readings.count / 6, 1)
+        var result = stride(from: 0, to: viewModel.readings.count, by: step).map { viewModel.readings[$0] }
+        if result.last?.id != viewModel.readings.last?.id,
+           let last = viewModel.readings.last {
+            result.append(last)
+        }
+        return result
     }
 }
 
@@ -92,6 +129,9 @@ private struct TrendChart: View {
                         .fill(readings[index].state.tint)
                         .frame(width: 10, height: 10)
                         .position(point)
+                        .accessibilityLabel(
+                            "\(readings[index].value.formatted(.number.precision(.fractionLength(1)))) mmol/L，\(readings[index].state.label)"
+                        )
                 }
             }
         }
@@ -136,7 +176,9 @@ private struct InsightRow: View {
 }
 
 #Preview {
+    let dependencies = AppDependencies.preview()
     NavigationStack {
-        GlucoseTrendDemoView()
+        GlucoseTrendDemoView(repository: dependencies.glucoseRepository)
     }
+    .modelContainer(dependencies.modelContainer)
 }

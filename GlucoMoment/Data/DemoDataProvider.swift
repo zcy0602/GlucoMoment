@@ -5,37 +5,45 @@
 //  Created by zcy0602 on 2026/6/27.
 //
 
+import Foundation
+
 enum DemoDataProvider {
-    static let readings = [
-        GlucoseReading(hour: "07:00", value: 96, state: .inRange),
-        GlucoseReading(hour: "09:00", value: 128, state: .inRange),
-        GlucoseReading(hour: "11:00", value: 118, state: .inRange),
-        GlucoseReading(hour: "13:00", value: 152, state: .elevated),
-        GlucoseReading(hour: "15:00", value: 134, state: .inRange),
-        GlucoseReading(hour: "17:00", value: 104, state: .inRange),
-        GlucoseReading(hour: "19:00", value: 141, state: .inRange),
-        GlucoseReading(hour: "21:00", value: 112, state: .inRange)
-    ]
+    static var readings: [GlucoseReading] {
+        let samples: [(hour: Int, minute: Int, value: Double)] = [
+            (7, 0, 5.3),
+            (9, 0, 7.1),
+            (11, 0, 6.6),
+            (13, 0, 10.8),
+            (15, 0, 7.4),
+            (17, 0, 5.8),
+            (19, 0, 7.8),
+            (21, 0, 6.2)
+        ]
 
-    static let weeklyReadings = [
-        GlucoseReading(hour: "周一", value: 124, state: .inRange),
-        GlucoseReading(hour: "周二", value: 132, state: .inRange),
-        GlucoseReading(hour: "周三", value: 146, state: .inRange),
-        GlucoseReading(hour: "周四", value: 158, state: .elevated),
-        GlucoseReading(hour: "周五", value: 128, state: .inRange),
-        GlucoseReading(hour: "周六", value: 118, state: .inRange),
-        GlucoseReading(hour: "周日", value: 110, state: .inRange)
-    ]
+        return samples.map { sample in
+            GlucoseReading(
+                measuredAt: dateToday(hour: sample.hour, minute: sample.minute),
+                value: sample.value,
+                source: .manual
+            )
+        }
+    }
 
-    static let monthlyReadings = [
-        GlucoseReading(hour: "1日", value: 138, state: .inRange),
-        GlucoseReading(hour: "5日", value: 144, state: .inRange),
-        GlucoseReading(hour: "10日", value: 151, state: .elevated),
-        GlucoseReading(hour: "15日", value: 133, state: .inRange),
-        GlucoseReading(hour: "20日", value: 122, state: .inRange),
-        GlucoseReading(hour: "25日", value: 116, state: .inRange),
-        GlucoseReading(hour: "30日", value: 109, state: .inRange)
-    ]
+    static var historicalReadings: [GlucoseReading] {
+        let calendar = Calendar.current
+        let previousDays = (1...29).map { dayOffset in
+            let date = calendar.date(byAdding: .day, value: -dayOffset, to: .now) ?? .now
+            let measuredAt = calendar.date(bySettingHour: 8 + dayOffset % 10, minute: 0, second: 0, of: date) ?? date
+            let value = 4.8 + Double((dayOffset * 7) % 54) / 10
+            return GlucoseReading(measuredAt: measuredAt, value: value, source: .manual)
+        }
+
+        return previousDays + readings
+    }
+
+    private static func dateToday(hour: Int, minute: Int) -> Date {
+        Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: .now) ?? .now
+    }
 
     static let mealGuidances: [MealPeriod: MealGuidance] = [
         .breakfast: MealGuidance(

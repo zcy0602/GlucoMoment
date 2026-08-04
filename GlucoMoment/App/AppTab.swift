@@ -16,14 +16,14 @@ enum AppTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     @ViewBuilder
-    var destination: some View {
+    func destination(dependencies: AppDependencies) -> some View {
         switch self {
         case .today:
-            TodayDashboardView()
+            TodayDashboardView(repository: dependencies.glucoseRepository)
         case .meals:
             MealLogDemoView()
         case .trends:
-            GlucoseTrendDemoView()
+            GlucoseTrendDemoView(repository: dependencies.glucoseRepository)
         case .plan:
             CarePlanDemoView()
         }

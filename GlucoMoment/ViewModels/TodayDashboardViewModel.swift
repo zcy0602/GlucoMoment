@@ -2,44 +2,129 @@
 //  TodayDashboardViewModel.swift
 //  GlucoMoment
 //
-//  Created by zcy0602 on 2026/6/27.
-//
 
+import Foundation
 import Observation
 import SwiftUI
 
+@MainActor
 @Observable
 final class TodayDashboardViewModel {
     let title = "稳糖食刻"
-    let timelineSubtitle = "Demo 数据用于呈现模块结构，后续可接 HealthKit 或手动记录。"
-    let nextAction = "20:40 记录晚餐后 2 小时血糖；如果高于 180，优先标注餐食和活动。"
 
-    let readings: [GlucoseReading]
-    let metrics: [DashboardMetric]
-    let timelineEvents: [TimelineEvent]
-    let currentSnapshot: CurrentGlucoseSnapshot
+    private let repository: any GlucoseRepository
 
-    init(
-        readings: [GlucoseReading] = DemoDataProvider.readings,
-        timelineEvents: [TimelineEvent] = DemoDataProvider.timelineEvents
-    ) {
-        self.readings = readings
-        self.timelineEvents = timelineEvents
-        self.currentSnapshot = CurrentGlucoseSnapshot(
-            value: "112",
-            unit: "mg/dL",
-            stateLabel: "平稳区间",
-            stateTint: Color.brandLeaf
+    private(set) var readings: [GlucoseReading] = []
+    private(set) var latestReading: GlucoseReading?
+    private(set) var errorMessage: String?
+    private(set) var isLoading = false
+    var isShowingError = false
+
+    init(repository: any GlucoseRepository) {
+        self.repository = repository
+    }
+
+    var timelineSubtitle: String {
+        readings.isEmpty ? "今天还没有血糖记录" : "今天已手动记录 \(readings.count) 次"
+    }
+
+    var currentSnapshot: CurrentGlucoseSnapshot? {
+        guard let latestReading else { return nil }
+        return CurrentGlucoseSnapshot(
+            value: formatted(latestReading.value),
+            unit: "mmol/L",
+            stateLabel: latestReading.state.label,
+            stateTint: latestReading.state.tint,
+            measuredAt: latestReading.measuredAt
         )
-        self.metrics = [
-            DashboardMetric(title: "今日范围", value: "84%", caption: "目标 70-180 mg/dL", systemImage: "scope", tint: Color.brandTeal),
-            DashboardMetric(title: "餐后峰值", value: "152", caption: "午餐后 58 分钟", systemImage: "waveform.path.ecg", tint: Color.brandAmber),
-            DashboardMetric(title: "活跃分钟", value: "26", caption: "餐后步行已达标", systemImage: "figure.walk", tint: Color.brandLeaf),
-            DashboardMetric(title: "记录完整度", value: "3/4", caption: "晚间复测待完成", systemImage: "checkmark.seal", tint: Color.brandRose)
+    }
+
+    var metrics: [DashboardMetric] {
+        let summary = GlucoseMetricsCalculator.calculate(readings: readings)
+        return [
+            DashboardMetric(
+                title: "范围内记录",
+                value: summary.inRangePercentage.map { "\($0)%" } ?? "—",
+                caption: "目标 3.9–10.0 mmol/L",
+                systemImage: "scope",
+                tint: Color.brandTeal
+            ),
+            DashboardMetric(
+                title: "平均血糖",
+                value: summary.average.map(formatted) ?? "—",
+                caption: "mmol/L",
+                systemImage: "number",
+                tint: Color.brandAmber
+            ),
+            DashboardMetric(
+                title: "今日最高",
+                value: summary.maximum.map(formatted) ?? "—",
+                caption: "mmol/L",
+                systemImage: "waveform.path.ecg",
+                tint: Color.brandRose
+            ),
+            DashboardMetric(
+                title: "记录次数",
+                value: "\(summary.readingCount)",
+                caption: "今天",
+                systemImage: "checkmark.seal",
+                tint: Color.brandLeaf
+            )
         ]
     }
 
+    var nextAction: String {
+        guard let latestReading else {
+            return "记录第一条血糖，开始建立属于你的趋势。"
+        }
+
+        switch latestReading.state {
+        case .low:
+            return "这条记录低于目标范围。如有不适或读数异常，请按医嘱处理并联系医生。"
+        case .inRange:
+            return "继续按计划记录餐前或餐后血糖，数据越完整越容易发现规律。"
+        case .elevated:
+            return "可以补充记录附近的餐食和活动，方便后续回顾；医疗决策请咨询医生。"
+        }
+    }
+
     var compactReadings: ArraySlice<GlucoseReading> {
-        readings.suffix(6)
+        readings.suffix(8)
+    }
+
+    func load() {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            readings = try repository.readings(in: todayInterval)
+            latestReading = try repository.latestReading()
+            errorMessage = nil
+            isShowingError = false
+        } catch {
+            errorMessage = "读取血糖记录失败：\(error.localizedDescription)"
+            isShowingError = true
+        }
+    }
+
+    func delete(_ reading: GlucoseReading) {
+        do {
+            try repository.delete(id: reading.id)
+            load()
+        } catch {
+            errorMessage = "删除血糖记录失败：\(error.localizedDescription)"
+            isShowingError = true
+        }
+    }
+
+    private var todayInterval: DateInterval {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: .now)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? .distantFuture
+        return DateInterval(start: start, end: end)
+    }
+
+    private func formatted(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(1)))
     }
 }

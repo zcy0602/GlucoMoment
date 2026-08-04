@@ -5,6 +5,7 @@
 //  Created by zcy0602 on 2026/6/27.
 //
 
+import Foundation
 import SwiftUI
 
 struct DashboardMetric: Identifiable {
@@ -21,4 +22,5 @@ struct CurrentGlucoseSnapshot {
     let unit: String
     let stateLabel: String
     let stateTint: Color
+    let measuredAt: Date
 }
