@@ -13,7 +13,6 @@ extension Color {
     static let brandLeaf = Color(red: 0.36, green: 0.63, blue: 0.35)
     static let brandAmber = Color(red: 0.94, green: 0.63, blue: 0.23)
     static let brandRose = Color(red: 0.88, green: 0.29, blue: 0.36)
-    static let surfaceSoft = Color(red: 0.96, green: 0.97, blue: 0.96)
 }
 
 extension GlucoseState {
