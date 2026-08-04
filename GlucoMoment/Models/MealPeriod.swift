@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum MealPeriod: String, CaseIterable, Hashable, Identifiable {
+nonisolated enum MealPeriod: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case breakfast = "早餐"
     case lunch = "午餐"
     case dinner = "晚餐"

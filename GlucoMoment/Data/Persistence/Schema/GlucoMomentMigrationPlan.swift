@@ -7,10 +7,19 @@ import SwiftData
 
 enum GlucoMomentMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [GlucoMomentSchemaV1.self]
+        [GlucoMomentSchemaV1.self, GlucoMomentSchemaV2.self, GlucoMomentSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        []
+        [
+            .lightweight(
+                fromVersion: GlucoMomentSchemaV1.self,
+                toVersion: GlucoMomentSchemaV2.self
+            ),
+            .lightweight(
+                fromVersion: GlucoMomentSchemaV2.self,
+                toVersion: GlucoMomentSchemaV3.self
+            )
+        ]
     }
 }

@@ -125,7 +125,7 @@ private struct NoGlucoseDataCard: View {
         ContentUnavailableView {
             Label("还没有血糖记录", systemImage: "drop")
         } description: {
-            Text("先记录一条 mmol/L 数据，今日概览和趋势会自动更新。")
+            Text("先记录一条血糖数据，今日概览和趋势会自动更新。")
         } actions: {
             Button("记录血糖", systemImage: "plus", action: addAction)
                 .buttonStyle(.borderedProminent)

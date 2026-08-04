@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gluco-moment-food-analysis",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-04",
+  "vars": {
+    "FOOD_AI_PROVIDER": "qwen",
+    "FOOD_AI_MODEL": "qwen3.7-plus",
+    "AI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+  },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ]
+}

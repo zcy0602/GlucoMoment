@@ -5,10 +5,25 @@
 //  Created by zcy0602 on 2026/6/27.
 //
 
+import SwiftData
 import SwiftUI
 
 struct MealLogDemoView: View {
-    @State private var viewModel = MealLogViewModel()
+    private let analysisService: any FoodAnalysisService
+    private let photoStore: any MealPhotoStoring
+    private let repository: any MealRepository
+    @State private var viewModel: MealLogViewModel
+
+    init(
+        repository: any MealRepository,
+        analysisService: any FoodAnalysisService,
+        photoStore: any MealPhotoStoring
+    ) {
+        self.repository = repository
+        self.analysisService = analysisService
+        self.photoStore = photoStore
+        _viewModel = State(initialValue: MealLogViewModel(repository: repository))
+    }
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -28,7 +43,12 @@ struct MealLogDemoView: View {
             )
             
             NavigationLink {
-                FoodScanDemoView()
+                FoodScanDemoView(
+                    analysisService: analysisService,
+                    mealRepository: repository,
+                    photoStore: photoStore,
+                    initialMealPeriod: viewModel.selectedMeal
+                )
             } label: {
                 Label("拍照识别饮食", systemImage: "camera.fill")
                     .frame(maxWidth: .infinity)
@@ -38,13 +58,43 @@ struct MealLogDemoView: View {
             .controlSize(.large)
             
             SectionHeader("今日餐食")
-            VStack(spacing: 12) {
-                ForEach(viewModel.meals) { meal in
-                    MealEntryCard(meal: meal)
+            if let loadErrorMessage = viewModel.loadErrorMessage {
+                ContentUnavailableView(
+                    "暂时无法读取饮食记录",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(loadErrorMessage)
+                )
+            } else if viewModel.meals.isEmpty {
+                ContentUnavailableView(
+                    "今天还没有\(viewModel.selectedMeal.rawValue)记录",
+                    systemImage: "fork.knife.circle",
+                    description: Text("拍摄餐食并确认识别结果后，会保存在这里。")
+                )
+                .frame(minHeight: 180)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(viewModel.meals) { meal in
+                        NavigationLink {
+                            MealReviewDetailView(
+                                meal: meal,
+                                photoStore: photoStore
+                            )
+                        } label: {
+                            MealRecordCard(meal: meal)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("meal-record-\(meal.id.uuidString)")
+                        .contextMenu {
+                            Button("删除记录", systemImage: "trash", role: .destructive) {
+                                viewModel.delete(meal)
+                            }
+                        }
+                    }
                 }
             }
-
-            
+        }
+        .task(id: viewModel.selectedMeal) {
+            viewModel.reload()
         }
     }
 }
@@ -78,8 +128,8 @@ private struct MealSuggestionCard: View {
     }
 }
 
-private struct MealEntryCard: View {
-    let meal: MealEntry
+private struct MealRecordCard: View {
+    let meal: MealRecord
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -87,39 +137,55 @@ private struct MealEntryCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(meal.title)
                         .font(.headline)
-                    Text("\(meal.time) · \(meal.carbs)")
+                    Text(
+                        "\(meal.eatenAt.formatted(date: .omitted, time: .shortened)) · "
+                            + "\(meal.carbohydratesGrams.formatted(.number.precision(.fractionLength(0))))g 碳水"
+                    )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                ScoreBadge(score: meal.score)
+                HStack(spacing: 8) {
+                    CaloriesBadge(calories: meal.caloriesKcal)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
 
-            Text(meal.note)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let note = meal.note, !note.isEmpty {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
             FlowLayout(spacing: 8) {
-                ForEach(meal.tags, id: \.self) { tag in
-                    PillTag(title: tag, tint: Color.brandTeal)
+                ForEach(meal.items.prefix(4)) { item in
+                    PillTag(title: item.name, tint: Color.brandTeal)
                 }
+                PillTag(
+                    title: meal.source == .aiPhoto ? "AI 图片识别" : "手动记录",
+                    tint: Color.brandLeaf
+                )
+
             }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
     }
 }
 
-private struct ScoreBadge: View {
-    let score: Int
+private struct CaloriesBadge: View {
+    let calories: Double
 
     var body: some View {
         VStack(spacing: 2) {
-            Text("\(score)")
+            Text(calories.formatted(.number.precision(.fractionLength(0))))
                 .font(.title3.weight(.bold))
-            Text("稳糖分")
+            Text("千卡")
                 .font(.caption2)
         }
         .foregroundStyle(Color.brandLeaf)
@@ -129,7 +195,13 @@ private struct ScoreBadge: View {
 }
 
 #Preview {
+    let dependencies = AppDependencies.preview()
     NavigationStack {
-        MealLogDemoView()
+        MealLogDemoView(
+            repository: dependencies.mealRepository,
+            analysisService: dependencies.foodAnalysisService,
+            photoStore: dependencies.mealPhotoStore
+        )
     }
+    .modelContainer(dependencies.modelContainer)
 }

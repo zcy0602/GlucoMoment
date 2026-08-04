@@ -8,9 +8,10 @@ import SwiftData
 import Testing
 @testable import GlucoMoment
 
-@Suite("SwiftData 血糖仓库")
-@MainActor
-struct GlucoseRepositoryTests {
+extension PersistenceRepositoryTests {
+    @Suite("血糖仓库")
+    @MainActor
+    struct GlucoseRepositoryTests {
     @Test("保存后可以按时间范围读取")
     func savesAndFetchesReading() throws {
         let (container, repository) = try makeRepository()
@@ -83,7 +84,9 @@ struct GlucoseRepositoryTests {
     }
 
     private func makeRepository() throws -> (ModelContainer, SwiftDataGlucoseRepository) {
-        let container = try ModelContainerFactory.makeInMemory()
+        let container = PersistenceRepositoryTests.container
+        try PersistenceRepositoryTests.resetStore()
         return (container, SwiftDataGlucoseRepository(modelContainer: container))
+    }
     }
 }

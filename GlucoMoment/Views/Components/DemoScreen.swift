@@ -11,15 +11,22 @@ struct DemoScreen<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 
+    private let contentPadding: CGFloat = 20
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                content
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    content
+                }
+                .frame(
+                    width: max(geometry.size.width - contentPadding * 2, 0),
+                    alignment: .leading
+                )
+                .padding(contentPadding)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemGroupedBackground))
         }
-        .background(Color(.systemGroupedBackground))
         .navigationTitle(title)
     }
 }

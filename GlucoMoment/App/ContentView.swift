@@ -17,6 +17,19 @@ struct ContentView: View {
             ForEach(AppTab.allCases) { tab in
                 NavigationStack {
                     tab.destination(dependencies: dependencies)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                NavigationLink {
+                                    FoodAnalysisSettingsView(
+                                        settings: dependencies.foodAnalysisSettings,
+                                        credentialStore: dependencies.foodAnalysisCredentialStore
+                                    )
+                                } label: {
+                                    Label("AI 设置", systemImage: "gearshape")
+                                }
+                                .accessibilityIdentifier("food-analysis-settings-link")
+                            }
+                        }
                 }
                 .tabItem { tab.label }
                 .tag(tab)

@@ -21,7 +21,11 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .today:
             TodayDashboardView(repository: dependencies.glucoseRepository)
         case .meals:
-            MealLogDemoView()
+            MealLogDemoView(
+                repository: dependencies.mealRepository,
+                analysisService: dependencies.foodAnalysisService,
+                photoStore: dependencies.mealPhotoStore
+            )
         case .trends:
             GlucoseTrendDemoView(repository: dependencies.glucoseRepository)
         case .plan:

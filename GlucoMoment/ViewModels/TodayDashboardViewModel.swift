@@ -45,7 +45,7 @@ final class TodayDashboardViewModel {
             DashboardMetric(
                 title: "范围内记录",
                 value: summary.inRangePercentage.map { "\($0)%" } ?? "—",
-                caption: "目标 3.9–10.0 mmol/L",
+                caption: "目标 3.9–10.0mmol/L",
                 systemImage: "scope",
                 tint: Color.brandTeal
             ),
