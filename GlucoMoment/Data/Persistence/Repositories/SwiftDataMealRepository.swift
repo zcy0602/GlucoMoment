@@ -9,9 +9,14 @@ import SwiftData
 @MainActor
 final class SwiftDataMealRepository: MealRepository {
   private let modelContext: ModelContext
+  private let syncStates: HealthKitSyncStateRepository?
 
-  init(modelContainer: ModelContainer) {
+  init(
+    modelContainer: ModelContainer,
+    syncStates: HealthKitSyncStateRepository? = nil
+  ) {
     modelContext = modelContainer.mainContext
+    self.syncStates = syncStates
   }
 
   func meals(in interval: DateInterval, period: MealPeriod?) throws -> [MealRecord] {
@@ -43,8 +48,25 @@ final class SwiftDataMealRepository: MealRepository {
     var descriptorWithPrefetch = descriptor
     descriptorWithPrefetch.relationshipKeyPathsForPrefetching = [\.items]
     return try modelContext.fetch(descriptorWithPrefetch).map { entity in
-      makeRecord(from: entity, snapshot: try fetchSnapshot(mealID: entity.id))
+      makeRecord(
+        from: entity,
+        snapshot: try fetchSnapshot(mealID: entity.id),
+        nutritionAvailability: try nutritionAvailability(mealID: entity.id)
+      )
     }
+  }
+
+  func meal(id: UUID) throws -> MealRecord? {
+    let mealID = id
+    let predicate = #Predicate<MealRecordEntity> { $0.id == mealID }
+    var descriptor = FetchDescriptor<MealRecordEntity>(predicate: predicate)
+    descriptor.fetchLimit = 1
+    guard let entity = try modelContext.fetch(descriptor).first else { return nil }
+    return makeRecord(
+      from: entity,
+      snapshot: try fetchSnapshot(mealID: mealID),
+      nutritionAvailability: try nutritionAvailability(mealID: mealID)
+    )
   }
 
   func save(_ meal: MealRecord) throws {
@@ -80,9 +102,37 @@ final class SwiftDataMealRepository: MealRepository {
     try modelContext.save()
   }
 
+  func replaceHealthKitMeals(with imports: [HealthKitMealImport]) throws {
+    let sourceRawValue = MealSource.healthKit.rawValue
+    let predicate = #Predicate<MealRecordEntity> {
+      $0.sourceRawValue == sourceRawValue
+    }
+    let existing = try modelContext.fetch(
+      FetchDescriptor<MealRecordEntity>(predicate: predicate)
+    )
+    let incomingIDs = Set(imports.map(\.meal.id))
+
+    for entity in existing where !incomingIDs.contains(entity.id) {
+      try delete(id: entity.id)
+      try syncStates?.delete(recordID: entity.id, kind: .meal)
+    }
+
+    for imported in imports {
+      try syncStates?.upsert(
+        recordID: imported.meal.id,
+        kind: .meal,
+        status: .external,
+        externalIdentifier: imported.externalIdentifier,
+        nutritionAvailabilityRawValue: imported.meal.nutritionAvailability.rawValue
+      )
+      try save(imported.meal)
+    }
+  }
+
   private func makeRecord(
     from entity: MealRecordEntity,
-    snapshot: MealAnalysisSnapshotEntity?
+    snapshot: MealAnalysisSnapshotEntity?,
+    nutritionAvailability: MealNutritionAvailability
   ) -> MealRecord {
     let itemDetails = decodeItemDetails(snapshot?.itemDetailsData)
     return MealRecord(
@@ -110,8 +160,18 @@ final class SwiftDataMealRepository: MealRepository {
       uncertainties: decodeStrings(snapshot?.uncertaintiesData),
       items: entity.items
         .sorted { $0.sortOrder < $1.sortOrder }
-        .map { makeItem(from: $0, details: itemDetails[$0.id]) }
+        .map { makeItem(from: $0, details: itemDetails[$0.id]) },
+      nutritionAvailability: nutritionAvailability
     )
+  }
+
+  private func nutritionAvailability(mealID: UUID) throws -> MealNutritionAvailability {
+    guard let rawValue = try syncStates?
+      .state(recordID: mealID, kind: .meal)?
+      .nutritionAvailabilityRawValue else {
+      return .all
+    }
+    return MealNutritionAvailability(rawValue: rawValue)
   }
 
   private func makeItem(

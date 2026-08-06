@@ -65,9 +65,9 @@ final class MealLogViewModel {
         }
     }
 
-    func delete(_ meal: MealRecord) {
+    func delete(_ meal: MealRecord) async {
         do {
-            try repository.delete(id: meal.id)
+            try await repository.delete(id: meal.id)
             reload()
         } catch {
             loadErrorMessage = error.localizedDescription

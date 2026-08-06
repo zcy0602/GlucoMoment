@@ -25,7 +25,7 @@ final class TodayDashboardViewModel {
     }
 
     var timelineSubtitle: String {
-        readings.isEmpty ? "今天还没有血糖记录" : "今天已手动记录 \(readings.count) 次"
+        readings.isEmpty ? "今天还没有血糖记录" : "今天共有 \(readings.count) 条血糖记录"
     }
 
     var currentSnapshot: CurrentGlucoseSnapshot? {
@@ -107,9 +107,9 @@ final class TodayDashboardViewModel {
         }
     }
 
-    func delete(_ reading: GlucoseReading) {
+    func delete(_ reading: GlucoseReading) async {
         do {
-            try repository.delete(id: reading.id)
+            try await repository.delete(id: reading.id)
             load()
         } catch {
             errorMessage = "删除血糖记录失败：\(error.localizedDescription)"

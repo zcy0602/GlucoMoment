@@ -8,6 +8,29 @@ import Foundation
 nonisolated enum MealSource: String, Codable, Sendable {
     case manual
     case aiPhoto
+    case healthKit
+
+    var label: String {
+        switch self {
+        case .manual:
+            "手动记录"
+        case .aiPhoto:
+            "AI 图片识别"
+        case .healthKit:
+            "健康 App"
+        }
+    }
+}
+
+nonisolated struct MealNutritionAvailability: OptionSet, Hashable, Codable, Sendable {
+    let rawValue: Int
+
+    static let energy = Self(rawValue: 1 << 0)
+    static let carbohydrates = Self(rawValue: 1 << 1)
+    static let protein = Self(rawValue: 1 << 2)
+    static let fat = Self(rawValue: 1 << 3)
+    static let fiber = Self(rawValue: 1 << 4)
+    static let all: Self = [.energy, .carbohydrates, .protein, .fat, .fiber]
 }
 
 nonisolated struct MealRecord: Identifiable, Hashable, Sendable {
@@ -34,6 +57,7 @@ nonisolated struct MealRecord: Identifiable, Hashable, Sendable {
     var followUpQuestions: [String]
     var uncertainties: [String]
     var items: [MealFoodItem]
+    var nutritionAvailability: MealNutritionAvailability
 
     init(
         id: UUID = UUID(),
@@ -58,7 +82,8 @@ nonisolated struct MealRecord: Identifiable, Hashable, Sendable {
         suggestions: [String] = [],
         followUpQuestions: [String] = [],
         uncertainties: [String] = [],
-        items: [MealFoodItem]
+        items: [MealFoodItem],
+        nutritionAvailability: MealNutritionAvailability = .all
     ) {
         self.id = id
         self.eatenAt = eatenAt
@@ -83,6 +108,7 @@ nonisolated struct MealRecord: Identifiable, Hashable, Sendable {
         self.followUpQuestions = followUpQuestions
         self.uncertainties = uncertainties
         self.items = items
+        self.nutritionAvailability = nutritionAvailability
     }
 }
 

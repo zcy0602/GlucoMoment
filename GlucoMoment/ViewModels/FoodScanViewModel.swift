@@ -161,7 +161,7 @@ final class FoodScanViewModel {
                 uncertainties: result.uncertainties,
                 items: items
             )
-            try mealRepository.save(meal)
+            try await mealRepository.save(meal)
             phase = .saved
         } catch is CancellationError {
             if let savedFilename {

@@ -39,6 +39,21 @@ final class SwiftDataGlucoseRepository: GlucoseRepository {
         return try modelContext.fetch(descriptor).first.map(makeReading)
     }
 
+    func allReadings() throws -> [GlucoseReading] {
+        let descriptor = FetchDescriptor<GlucoseSampleEntity>(
+            sortBy: [SortDescriptor(\.measuredAt)]
+        )
+        return try modelContext.fetch(descriptor).map(makeReading)
+    }
+
+    func reading(id: UUID) throws -> GlucoseReading? {
+        let readingID = id
+        let predicate = #Predicate<GlucoseSampleEntity> { $0.id == readingID }
+        var descriptor = FetchDescriptor<GlucoseSampleEntity>(predicate: predicate)
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first.map(makeReading)
+    }
+
     func save(_ reading: GlucoseReading) throws {
         let readingID = reading.id
         let predicate = #Predicate<GlucoseSampleEntity> { $0.id == readingID }
@@ -62,6 +77,33 @@ final class SwiftDataGlucoseRepository: GlucoseRepository {
 
         guard let entity = try modelContext.fetch(descriptor).first else { return }
         modelContext.delete(entity)
+        try modelContext.save()
+    }
+
+    func replaceHealthKitReadings(with readings: [GlucoseReading]) throws {
+        let healthKitSource = GlucoseSource.healthKit.rawValue
+        let predicate = #Predicate<GlucoseSampleEntity> {
+            $0.sourceRawValue == healthKitSource
+        }
+        let existingEntities = try modelContext.fetch(
+            FetchDescriptor<GlucoseSampleEntity>(predicate: predicate)
+        )
+        var existingByID = Dictionary(uniqueKeysWithValues: existingEntities.map { ($0.id, $0) })
+        let incomingIDs = Set(readings.map(\.id))
+
+        for entity in existingEntities where !incomingIDs.contains(entity.id) {
+            modelContext.delete(entity)
+            existingByID[entity.id] = nil
+        }
+
+        for reading in readings {
+            if let entity = existingByID[reading.id] {
+                update(entity, from: reading)
+            } else {
+                modelContext.insert(makeEntity(from: reading))
+            }
+        }
+
         try modelContext.save()
     }
 

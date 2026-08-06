@@ -11,23 +11,33 @@ import SwiftUI
 struct ContentView: View {
     let dependencies: AppDependencies
     @State private var selectedTab: AppTab = .today
+    @State private var healthKitCoordinator: HealthKitCoordinator
+
+    init(dependencies: AppDependencies) {
+        self.dependencies = dependencies
+        _healthKitCoordinator = State(initialValue: dependencies.healthKitCoordinator)
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             ForEach(AppTab.allCases) { tab in
                 NavigationStack {
-                    tab.destination(dependencies: dependencies)
+                    tab.destination(
+                        dependencies: dependencies,
+                        healthDataRevision: healthKitCoordinator.dataRevision
+                    )
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 NavigationLink {
-                                    FoodAnalysisSettingsView(
-                                        settings: dependencies.foodAnalysisSettings,
-                                        credentialStore: dependencies.foodAnalysisCredentialStore
+                                    AppSettingsView(
+                                        healthKitCoordinator: healthKitCoordinator,
+                                        foodAnalysisSettings: dependencies.foodAnalysisSettings,
+                                        foodAnalysisCredentialStore: dependencies.foodAnalysisCredentialStore
                                     )
                                 } label: {
-                                    Label("AI 设置", systemImage: "gearshape")
+                                    Label("设置", systemImage: "gearshape")
                                 }
-                                .accessibilityIdentifier("food-analysis-settings-link")
+                                .accessibilityIdentifier("app-settings-link")
                             }
                         }
                 }
@@ -36,6 +46,17 @@ struct ContentView: View {
             }
         }
         .tint(Color.brandTeal)
+        .task { await healthKitCoordinator.handleLaunch() }
+        .sheet(item: $healthKitCoordinator.presentedSheet) { sheet in
+            switch sheet {
+            case .introduction:
+                HealthKitIntroductionView(coordinator: healthKitCoordinator)
+            }
+        }
+        .alert("HealthKit 操作失败", isPresented: $healthKitCoordinator.isShowingError) {
+        } message: {
+            Text(healthKitCoordinator.errorMessage ?? "请稍后重试。")
+        }
     }
 }
 

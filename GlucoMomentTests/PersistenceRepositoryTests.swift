@@ -34,6 +34,9 @@ struct PersistenceRepositoryTests {
         for entity in try context.fetch(FetchDescriptor<GlucoseSampleEntity>()) {
             context.delete(entity)
         }
+        for entity in try context.fetch(FetchDescriptor<HealthKitSyncStateEntity>()) {
+            context.delete(entity)
+        }
         try context.save()
     }
 }

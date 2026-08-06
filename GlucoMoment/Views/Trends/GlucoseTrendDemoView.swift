@@ -8,9 +8,11 @@ import SwiftUI
 
 struct GlucoseTrendDemoView: View {
     @State private var viewModel: GlucoseTrendViewModel
+    private let healthDataRevision: Int
 
-    init(repository: any GlucoseRepository) {
+    init(repository: any GlucoseRepository, healthDataRevision: Int = 0) {
         _viewModel = State(initialValue: GlucoseTrendViewModel(repository: repository))
+        self.healthDataRevision = healthDataRevision
     }
 
     var body: some View {
@@ -28,7 +30,7 @@ struct GlucoseTrendDemoView: View {
                 ContentUnavailableView {
                     Label("暂无趋势数据", systemImage: "chart.xyaxis.line")
                 } description: {
-                    Text("在今日页记录血糖后，这里会按 mmol/L 展示趋势。")
+                    Text("手动记录或从健康 App 同步血糖后，这里会按 mmol/L 展示趋势。")
                 }
                 .padding(.vertical, 18)
                 .frame(maxWidth: .infinity)
@@ -49,7 +51,7 @@ struct GlucoseTrendDemoView: View {
             }
         }
         .refreshable(action: viewModel.load)
-        .task(viewModel.load)
+        .task(id: healthDataRevision) { viewModel.load() }
         .onChange(of: viewModel.selectedRange) {
             viewModel.load()
         }

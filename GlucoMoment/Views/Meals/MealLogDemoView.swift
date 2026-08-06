@@ -12,16 +12,19 @@ struct MealLogDemoView: View {
     private let analysisService: any FoodAnalysisService
     private let photoStore: any MealPhotoStoring
     private let repository: any MealRepository
+    private let healthDataRevision: Int
     @State private var viewModel: MealLogViewModel
 
     init(
         repository: any MealRepository,
         analysisService: any FoodAnalysisService,
-        photoStore: any MealPhotoStoring
+        photoStore: any MealPhotoStoring,
+        healthDataRevision: Int = 0
     ) {
         self.repository = repository
         self.analysisService = analysisService
         self.photoStore = photoStore
+        self.healthDataRevision = healthDataRevision
         _viewModel = State(initialValue: MealLogViewModel(repository: repository))
     }
 
@@ -85,15 +88,17 @@ struct MealLogDemoView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("meal-record-\(meal.id.uuidString)")
                         .contextMenu {
-                            Button("删除记录", systemImage: "trash", role: .destructive) {
-                                viewModel.delete(meal)
+                            if meal.source != .healthKit {
+                                Button("删除记录", systemImage: "trash", role: .destructive) {
+                                    Task { await viewModel.delete(meal) }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        .task(id: viewModel.selectedMeal) {
+        .task(id: "\(viewModel.selectedMeal.rawValue)-\(healthDataRevision)") {
             viewModel.reload()
         }
     }
@@ -139,7 +144,7 @@ private struct MealRecordCard: View {
                         .font(.headline)
                     Text(
                         "\(meal.eatenAt.formatted(date: .omitted, time: .shortened)) · "
-                            + "\(meal.carbohydratesGrams.formatted(.number.precision(.fractionLength(0))))g 碳水"
+                            + carbohydrateSummary
                     )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -148,7 +153,10 @@ private struct MealRecordCard: View {
                 Spacer()
 
                 HStack(spacing: 8) {
-                    CaloriesBadge(calories: meal.caloriesKcal)
+                    CaloriesBadge(
+                        calories: meal.nutritionAvailability.contains(.energy)
+                            ? meal.caloriesKcal : nil
+                    )
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
@@ -166,7 +174,7 @@ private struct MealRecordCard: View {
                     PillTag(title: item.name, tint: Color.brandTeal)
                 }
                 PillTag(
-                    title: meal.source == .aiPhoto ? "AI 图片识别" : "手动记录",
+                    title: meal.source.label,
                     tint: Color.brandLeaf
                 )
 
@@ -176,14 +184,21 @@ private struct MealRecordCard: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
         .contentShape(Rectangle())
     }
+
+    private var carbohydrateSummary: String {
+        guard meal.nutritionAvailability.contains(.carbohydrates) else {
+            return "碳水未提供"
+        }
+        return "\(meal.carbohydratesGrams.formatted(.number.precision(.fractionLength(0))))g 碳水"
+    }
 }
 
 private struct CaloriesBadge: View {
-    let calories: Double
+    let calories: Double?
 
     var body: some View {
         VStack(spacing: 2) {
-            Text(calories.formatted(.number.precision(.fractionLength(0))))
+            Text(calories?.formatted(.number.precision(.fractionLength(0))) ?? "—")
                 .font(.title3.weight(.bold))
             Text("千卡")
                 .font(.caption2)

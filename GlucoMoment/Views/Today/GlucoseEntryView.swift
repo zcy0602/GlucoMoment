@@ -86,8 +86,10 @@ struct GlucoseEntryView: View {
     }
 
     private func save() {
-        guard viewModel.save() else { return }
-        onSaved()
-        dismiss()
+        Task {
+            guard await viewModel.save() else { return }
+            onSaved()
+            dismiss()
+        }
     }
 }

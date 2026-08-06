@@ -83,6 +83,55 @@ extension PersistenceRepositoryTests {
         #expect(try repository.latestReading() == nil)
     }
 
+    @Test("HealthKit 全量对账会更新外部样本但保留手动记录")
+    func reconcilesHealthKitReadingsWithoutChangingManualReadings() throws {
+        let (_, repository) = try makeRepository()
+        let measuredAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let removedHealthKitID = UUID()
+        let retainedHealthKitID = UUID()
+        let manualReading = GlucoseReading(measuredAt: measuredAt, value: 5.6)
+
+        try repository.save(manualReading)
+        try repository.replaceHealthKitReadings(with: [
+            GlucoseReading(
+                id: removedHealthKitID,
+                measuredAt: measuredAt,
+                value: 6.0,
+                source: .healthKit,
+                externalIdentifier: removedHealthKitID.uuidString
+            ),
+            GlucoseReading(
+                id: retainedHealthKitID,
+                measuredAt: measuredAt.addingTimeInterval(60),
+                value: 6.5,
+                source: .healthKit,
+                externalIdentifier: retainedHealthKitID.uuidString
+            )
+        ])
+
+        try repository.replaceHealthKitReadings(with: [
+            GlucoseReading(
+                id: retainedHealthKitID,
+                measuredAt: measuredAt.addingTimeInterval(60),
+                value: 7.2,
+                source: .healthKit,
+                externalIdentifier: retainedHealthKitID.uuidString
+            )
+        ])
+
+        let fetched = try repository.readings(
+            in: DateInterval(
+                start: measuredAt.addingTimeInterval(-1),
+                end: measuredAt.addingTimeInterval(120)
+            )
+        )
+
+        #expect(fetched.count == 2)
+        #expect(fetched.contains(where: { $0.id == manualReading.id && $0.value == 5.6 }))
+        #expect(fetched.contains(where: { $0.id == retainedHealthKitID && $0.value == 7.2 }))
+        #expect(!fetched.contains(where: { $0.id == removedHealthKitID }))
+    }
+
     private func makeRepository() throws -> (ModelContainer, SwiftDataGlucoseRepository) {
         let container = PersistenceRepositoryTests.container
         try PersistenceRepositoryTests.resetStore()

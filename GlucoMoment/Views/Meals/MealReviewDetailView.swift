@@ -36,10 +36,12 @@ struct MealReviewDetailView: View {
         )
       }
 
-      SectionHeader("食物与营养")
-      VStack(spacing: 12) {
-        ForEach(meal.items) { item in
-          MealFoodItemDetailCard(item: item)
+      if !meal.items.isEmpty {
+        SectionHeader("食物与营养")
+        VStack(spacing: 12) {
+          ForEach(meal.items) { item in
+            MealFoodItemDetailCard(item: item)
+          }
         }
       }
 
@@ -124,7 +126,11 @@ struct MealReviewDetailView: View {
         Spacer()
 
         VStack(spacing: 2) {
-          Text(meal.caloriesKcal.formatted(.number.precision(.fractionLength(0))))
+          Text(
+            meal.nutritionAvailability.contains(.energy)
+              ? meal.caloriesKcal.formatted(.number.precision(.fractionLength(0)))
+              : "—"
+          )
             .font(.title3.weight(.bold))
           Text("千卡")
             .font(.caption2)
@@ -137,7 +143,7 @@ struct MealReviewDetailView: View {
       FlowLayout(spacing: 8) {
         PillTag(title: meal.mealPeriod.rawValue, tint: Color.brandTeal)
         PillTag(
-          title: meal.source == .aiPhoto ? "AI 图片识别" : "手动记录",
+          title: meal.source.label,
           tint: Color.brandLeaf
         )
         if let score = meal.score {
@@ -152,13 +158,13 @@ struct MealReviewDetailView: View {
   private var nutritionGrid: some View {
     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
       MealNutritionMetric(
-        title: "碳水", value: grams(meal.carbohydratesGrams), icon: "leaf", tint: Color.brandTeal)
+        title: "碳水", value: grams(meal.carbohydratesGrams, available: .carbohydrates), icon: "leaf", tint: Color.brandTeal)
       MealNutritionMetric(
-        title: "蛋白质", value: grams(meal.proteinGrams), icon: "bolt.heart", tint: Color.brandLeaf)
+        title: "蛋白质", value: grams(meal.proteinGrams, available: .protein), icon: "bolt.heart", tint: Color.brandLeaf)
       MealNutritionMetric(
-        title: "脂肪", value: grams(meal.fatGrams), icon: "drop", tint: Color.brandAmber)
+        title: "脂肪", value: grams(meal.fatGrams, available: .fat), icon: "drop", tint: Color.brandAmber)
       MealNutritionMetric(
-        title: "膳食纤维", value: grams(meal.fiberGrams), icon: "laurel.leading", tint: Color.brandLeaf)
+        title: "膳食纤维", value: grams(meal.fiberGrams, available: .fiber), icon: "laurel.leading", tint: Color.brandLeaf)
       if let glucoseImpact = meal.glucoseImpact {
         MealNutritionMetric(
           title: "血糖影响",
@@ -172,7 +178,7 @@ struct MealReviewDetailView: View {
 
   private var analysisMetadata: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Label("识别记录", systemImage: "info.circle")
+      Label(meal.source == .healthKit ? "数据来源" : "识别记录", systemImage: "info.circle")
         .font(.headline)
 
       if let provider = meal.aiProvider {
@@ -185,7 +191,11 @@ struct MealReviewDetailView: View {
         LabeledContent("提示词版本", value: promptVersion)
       }
 
-      Text("这是保存时的 Review 快照，不会在查看详情时重新上传或重新识别照片。")
+      Text(
+        meal.source == .healthKit
+          ? "这条饮食来自健康 App；未授权或原记录没有的营养项会显示为“未提供”。"
+          : "这是保存时的 Review 快照，不会在查看详情时重新上传或重新识别照片。"
+      )
         .font(.footnote)
         .foregroundStyle(.secondary)
     }
@@ -194,8 +204,12 @@ struct MealReviewDetailView: View {
     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
   }
 
-  private func grams(_ value: Double) -> String {
-    "\(value.formatted(.number.precision(.fractionLength(0))))g"
+  private func grams(
+    _ value: Double,
+    available nutrient: MealNutritionAvailability
+  ) -> String {
+    guard meal.nutritionAvailability.contains(nutrient) else { return "未提供" }
+    return "\(value.formatted(.number.precision(.fractionLength(0))))g"
   }
 }
 

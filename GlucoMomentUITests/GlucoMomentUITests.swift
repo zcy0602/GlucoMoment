@@ -18,6 +18,8 @@ final class GlucoMomentUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
+        dismissHealthKitIntroductionIfNeeded(in: app)
+
         app.buttons["记录血糖"].firstMatch.tap()
 
         let valueField = app.textFields["血糖值，单位 mmol/L"]
@@ -43,6 +45,14 @@ final class GlucoMomentUITests: XCTestCase {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
+        }
+    }
+
+    @MainActor
+    private func dismissHealthKitIntroductionIfNeeded(in app: XCUIApplication) {
+        let notNowButton = app.buttons["healthkit-not-now-button"]
+        if notNowButton.waitForExistence(timeout: 2) {
+            notNowButton.tap()
         }
     }
 }

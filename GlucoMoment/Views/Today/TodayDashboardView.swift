@@ -8,12 +8,14 @@ import SwiftUI
 
 struct TodayDashboardView: View {
     private let repository: any GlucoseRepository
+    private let healthDataRevision: Int
 
     @State private var viewModel: TodayDashboardViewModel
     @State private var editorPresentation: GlucoseEditorPresentation?
 
-    init(repository: any GlucoseRepository) {
+    init(repository: any GlucoseRepository, healthDataRevision: Int = 0) {
         self.repository = repository
+        self.healthDataRevision = healthDataRevision
         _viewModel = State(initialValue: TodayDashboardViewModel(repository: repository))
     }
 
@@ -32,7 +34,7 @@ struct TodayDashboardView: View {
 
             SectionHeader("今日记录", subtitle: viewModel.timelineSubtitle)
             if viewModel.readings.isEmpty {
-                Text("点击右上角的加号，记录第一条血糖。")
+                Text("点击右上角的加号手动记录，或在设置中连接健康 App。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -43,8 +45,12 @@ struct TodayDashboardView: View {
                     ForEach(viewModel.readings.reversed()) { reading in
                         GlucoseReadingRow(
                             reading: reading,
-                            onEdit: { editorPresentation = GlucoseEditorPresentation(reading: reading) },
-                            onDelete: { viewModel.delete(reading) }
+                            onEdit: reading.source == .manual
+                                ? { editorPresentation = GlucoseEditorPresentation(reading: reading) }
+                                : nil,
+                            onDelete: reading.source == .manual
+                                ? { Task { await viewModel.delete(reading) } }
+                                : nil
                         )
                     }
                 }
@@ -56,7 +62,7 @@ struct TodayDashboardView: View {
                 Button("记录血糖", systemImage: "plus", action: presentNewReading)
             }
         }
-        .task(viewModel.load)
+        .task(id: healthDataRevision) { viewModel.load() }
         .sheet(item: $editorPresentation) { presentation in
             GlucoseEntryView(
                 repository: repository,
@@ -196,8 +202,8 @@ private struct NextActionCard: View {
 
 private struct GlucoseReadingRow: View {
     let reading: GlucoseReading
-    let onEdit: () -> Void
-    let onDelete: () -> Void
+    let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
 
     @State private var isConfirmingDeletion = false
 
@@ -226,15 +232,23 @@ private struct GlucoseReadingRow: View {
             Text("\(reading.value.formatted(.number.precision(.fractionLength(1)))) mmol/L")
                 .font(.subheadline.weight(.semibold))
 
-            Menu("记录操作", systemImage: "ellipsis.circle") {
-                Button("编辑", systemImage: "pencil", action: onEdit)
-                Button("删除", systemImage: "trash", role: .destructive) {
-                    isConfirmingDeletion = true
+            if let onEdit, onDelete != nil {
+                Menu("记录操作", systemImage: "ellipsis.circle") {
+                    Button("编辑", systemImage: "pencil", action: onEdit)
+                    Button("删除", systemImage: "trash", role: .destructive) {
+                        isConfirmingDeletion = true
+                    }
                 }
-            }
-            .labelStyle(.iconOnly)
-            .confirmationDialog("删除这条血糖记录？", isPresented: $isConfirmingDeletion) {
-                Button("删除记录", role: .destructive, action: onDelete)
+                .labelStyle(.iconOnly)
+                .confirmationDialog("删除这条血糖记录？", isPresented: $isConfirmingDeletion) {
+                    if let onDelete {
+                        Button("删除记录", role: .destructive, action: onDelete)
+                    }
+                }
+            } else {
+                Image(systemName: "heart.text.square")
+                    .foregroundStyle(Color.brandTeal)
+                    .accessibilityLabel("由健康 App 管理")
             }
         }
         .padding(14)

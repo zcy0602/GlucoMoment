@@ -44,7 +44,7 @@ final class GlucoseEntryViewModel {
         return nil
     }
 
-    func save() -> Bool {
+    func save() async -> Bool {
         guard canSave, let value else {
             errorMessage = validationMessage
             isShowingError = true
@@ -62,7 +62,7 @@ final class GlucoseEntryViewModel {
         )
 
         do {
-            try repository.save(reading)
+            try await repository.save(reading)
             errorMessage = nil
             isShowingError = false
             return true

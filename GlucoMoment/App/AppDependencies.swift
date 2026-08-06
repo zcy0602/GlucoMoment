@@ -15,22 +15,46 @@ struct AppDependencies {
     let foodAnalysisSettings: FoodAnalysisSettings
     let foodAnalysisCredentialStore: any FoodAnalysisCredentialStoring
     let mealPhotoStore: any MealPhotoStoring
+    let healthKitCoordinator: HealthKitCoordinator
 
     static func live() throws -> AppDependencies {
         let modelContainer = try ModelContainerFactory.makeLive()
         let settings = FoodAnalysisSettings()
         let credentialStore = KeychainFoodAnalysisCredentialStore()
+        let syncStates = HealthKitSyncStateRepository(modelContainer: modelContainer)
+        let healthKit = HealthKitStoreClient()
+        let localGlucoseRepository = SwiftDataGlucoseRepository(modelContainer: modelContainer)
+        let localMealRepository = SwiftDataMealRepository(
+            modelContainer: modelContainer,
+            syncStates: syncStates
+        )
+        let glucoseRepository = HealthKitSynchronizedGlucoseRepository(
+            local: localGlucoseRepository,
+            syncStates: syncStates,
+            healthKit: healthKit
+        )
+        let mealRepository = HealthKitSynchronizedMealRepository(
+            local: localMealRepository,
+            syncStates: syncStates,
+            healthKit: healthKit
+        )
+        let healthKitService = HealthKitSynchronizationService(
+            healthKit: healthKit,
+            glucoseRepository: glucoseRepository,
+            mealRepository: mealRepository
+        )
         return AppDependencies(
             modelContainer: modelContainer,
-            glucoseRepository: SwiftDataGlucoseRepository(modelContainer: modelContainer),
-            mealRepository: SwiftDataMealRepository(modelContainer: modelContainer),
+            glucoseRepository: glucoseRepository,
+            mealRepository: mealRepository,
             foodAnalysisService: FoodAnalysisConfiguration.makeService(
                 settings: settings,
                 credentialStore: credentialStore
             ),
             foodAnalysisSettings: settings,
             foodAnalysisCredentialStore: credentialStore,
-            mealPhotoStore: LocalMealPhotoStore()
+            mealPhotoStore: LocalMealPhotoStore(),
+            healthKitCoordinator: HealthKitCoordinator(service: healthKitService)
         )
     }
 
@@ -53,7 +77,11 @@ struct AppDependencies {
                 ),
                 foodAnalysisSettings: settings,
                 foodAnalysisCredentialStore: credentialStore,
-                mealPhotoStore: InMemoryMealPhotoStore()
+                mealPhotoStore: InMemoryMealPhotoStore(),
+                healthKitCoordinator: HealthKitCoordinator(
+                    service: UnavailableHealthKitSynchronizationService(),
+                    presentsIntroduction: false
+                )
             )
         } catch {
             preconditionFailure("无法创建 Preview 数据容器：\(error.localizedDescription)")
