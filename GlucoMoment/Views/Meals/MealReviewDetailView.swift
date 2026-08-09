@@ -118,7 +118,7 @@ struct MealReviewDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
           Text(meal.title)
             .font(.title3.weight(.semibold))
-          Text(meal.eatenAt.formatted(date: .abbreviated, time: .shortened))
+          Text(meal.eatenAt, format: GlucoMomentDateStyle.fullDateTime)
             .font(.subheadline)
             .foregroundStyle(.secondary)
         }

@@ -78,13 +78,7 @@ final class FoodAnalysisSettings {
     }
 
     var validatedProxyEndpoint: URL? {
-        let trimmed = proxyEndpointString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              url.scheme?.lowercased() == "https",
-              url.host != nil else {
-            return nil
-        }
-        return url
+        FoodAnalysisProxyEndpoint.analysisURL(from: proxyEndpointString)
     }
 
     private func persistMode() {

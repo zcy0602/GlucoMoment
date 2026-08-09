@@ -54,6 +54,7 @@ struct GlucoseEntryView: View {
                         in: ...Date.now,
                         displayedComponents: [.date, .hourAndMinute]
                     )
+                    .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                 }
 
                 Section("备注（可选）") {

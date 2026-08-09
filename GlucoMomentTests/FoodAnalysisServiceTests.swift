@@ -84,6 +84,37 @@ struct FoodAnalysisServiceTests {
         } == false)
     }
 
+    @MainActor
+    @Test("代理根地址会自动补全分析路径")
+    func proxyRootURLNormalization() throws {
+        let settings = FoodAnalysisSettings(
+            mode: .proxy,
+            proxyEndpointString: " http://106.52.20.70:8787/ "
+        )
+
+        let endpoint = try #require(settings.validatedProxyEndpoint)
+        #expect(endpoint.absoluteString == "http://106.52.20.70:8787/v1/food/analyze")
+        #expect(settings.runtimeConfiguration.proxyEndpoint == endpoint)
+        #expect(
+            FoodAnalysisProxyEndpoint.healthURL(from: endpoint)?.absoluteString
+                == "http://106.52.20.70:8787/health"
+        )
+    }
+
+    @MainActor
+    @Test("完整代理接口地址保持兼容并移除尾部斜杠")
+    func fullProxyURLNormalization() {
+        let settings = FoodAnalysisSettings(
+            mode: .proxy,
+            proxyEndpointString: "https://example.com/v1/food/analyze/"
+        )
+
+        #expect(
+            settings.validatedProxyEndpoint?.absoluteString
+                == "https://example.com/v1/food/analyze"
+        )
+    }
+
     private func makeQwenResponse() throws -> Data {
         let payload: [String: Any] = [
             "mealName": "鸡胸肉蔬菜沙拉",

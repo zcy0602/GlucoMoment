@@ -373,6 +373,7 @@ private struct FoodReviewSheet: View {
                         }
                     }
                     DatePicker("用餐时间", selection: $eatenAt)
+                        .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                     TextField("备注（可选）", text: $userNote, axis: .vertical)
                         .lineLimit(2...4)
                 }

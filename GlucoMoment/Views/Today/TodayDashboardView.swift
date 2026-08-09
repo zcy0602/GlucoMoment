@@ -58,6 +58,18 @@ struct TodayDashboardView: View {
         }
         .refreshable(action: viewModel.load)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    GlucoseHistoryView(
+                        repository: repository,
+                        healthDataRevision: healthDataRevision
+                    )
+                } label: {
+                    Label("历史记录", systemImage: "clock.arrow.circlepath")
+                }
+                .accessibilityIdentifier("glucose-history-link")
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button("记录血糖", systemImage: "plus", action: presentNewReading)
             }
@@ -85,6 +97,8 @@ private struct CurrentGlucoseCard: View {
     let snapshot: CurrentGlucoseSnapshot
     let readings: [GlucoseReading]
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
@@ -100,7 +114,7 @@ private struct CurrentGlucoseCard: View {
                             .foregroundStyle(.secondary)
                     }
                     PillTag(title: snapshot.stateLabel, tint: snapshot.stateTint)
-                    Text(snapshot.measuredAt, format: .dateTime.month().day().hour().minute())
+                    Text(snapshot.measuredAt, format: GlucoMomentDateStyle.monthDayTime)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -118,9 +132,24 @@ private struct CurrentGlucoseCard: View {
         }
         .padding(18)
         .background(
-            LinearGradient(colors: [.white, Color.brandMint.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing),
+            LinearGradient(
+                colors: backgroundColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
             in: RoundedRectangle(cornerRadius: 16)
         )
+    }
+
+    private var backgroundColors: [Color] {
+        if colorScheme == .dark {
+            return [
+                Color(.secondarySystemGroupedBackground),
+                Color.brandTeal.opacity(0.32)
+            ]
+        }
+
+        return [.white, Color.brandMint.opacity(0.75)]
     }
 }
 
@@ -153,7 +182,7 @@ private struct ReadingSparkBars: View {
                     .frame(width: 8, height: barHeight(for: reading.value))
                     .frame(maxWidth: .infinity, maxHeight: 92, alignment: .bottom)
                     .accessibilityLabel(
-                        "\(reading.measuredAt.formatted(.dateTime.hour().minute()))，\(reading.value.formatted(.number.precision(.fractionLength(1)))) mmol/L，\(reading.state.label)"
+                        "\(reading.measuredAt.formatted(GlucoMomentDateStyle.time))，\(reading.value.formatted(.number.precision(.fractionLength(1)))) mmol/L，\(reading.state.label)"
                     )
             }
         }
@@ -200,7 +229,7 @@ private struct NextActionCard: View {
     }
 }
 
-private struct GlucoseReadingRow: View {
+struct GlucoseReadingRow: View {
     let reading: GlucoseReading
     let onEdit: (() -> Void)?
     let onDelete: (() -> Void)?
@@ -214,7 +243,7 @@ private struct GlucoseReadingRow: View {
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(reading.measuredAt, format: .dateTime.hour().minute())
+                Text(reading.measuredAt, format: GlucoMomentDateStyle.time)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                 Text(reading.source.label)
                     .font(.caption)

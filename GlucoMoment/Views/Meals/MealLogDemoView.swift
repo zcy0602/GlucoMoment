@@ -101,6 +101,20 @@ struct MealLogDemoView: View {
         .task(id: "\(viewModel.selectedMeal.rawValue)-\(healthDataRevision)") {
             viewModel.reload()
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    MealHistoryView(
+                        repository: repository,
+                        photoStore: photoStore,
+                        healthDataRevision: healthDataRevision
+                    )
+                } label: {
+                    Label("历史记录", systemImage: "clock.arrow.circlepath")
+                }
+                .accessibilityIdentifier("meal-history-link")
+            }
+        }
     }
 }
 
@@ -133,7 +147,7 @@ private struct MealSuggestionCard: View {
     }
 }
 
-private struct MealRecordCard: View {
+struct MealRecordCard: View {
     let meal: MealRecord
 
     var body: some View {
@@ -143,8 +157,7 @@ private struct MealRecordCard: View {
                     Text(meal.title)
                         .font(.headline)
                     Text(
-                        "\(meal.eatenAt.formatted(date: .omitted, time: .shortened)) · "
-                            + carbohydrateSummary
+                        "\(meal.eatenAt.formatted(GlucoMomentDateStyle.time)) · \(carbohydrateSummary)"
                     )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

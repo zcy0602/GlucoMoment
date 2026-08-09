@@ -141,11 +141,11 @@ final class GlucoseTrendViewModel {
     func axisLabel(for reading: GlucoseReading) -> String {
         switch selectedRange {
         case .today:
-            reading.measuredAt.formatted(.dateTime.hour().minute())
+            reading.measuredAt.formatted(GlucoMomentDateStyle.time)
         case .week:
-            reading.measuredAt.formatted(.dateTime.weekday(.narrow))
+            reading.measuredAt.formatted(GlucoMomentDateStyle.weekday)
         case .month:
-            reading.measuredAt.formatted(.dateTime.day())
+            reading.measuredAt.formatted(GlucoMomentDateStyle.day)
         }
     }
 

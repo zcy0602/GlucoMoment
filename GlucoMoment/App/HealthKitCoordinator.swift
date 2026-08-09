@@ -70,7 +70,7 @@ final class HealthKitCoordinator {
             return "此设备不支持健康数据"
         }
         if let lastSyncDate, let lastSyncedGlucoseCount, let lastSyncedMealCount {
-            return "上次同步 \(lastSyncDate.formatted(.relative(presentation: .named)))，\(lastSyncedGlucoseCount) 条血糖、\(lastSyncedMealCount) 条饮食"
+            return "上次同步 \(lastSyncDate.formatted(GlucoMomentDateStyle.relative))，\(lastSyncedGlucoseCount) 条血糖、\(lastSyncedMealCount) 条饮食"
         }
         return "尚未同步"
     }

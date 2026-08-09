@@ -124,7 +124,7 @@ struct FoodAnalysisSettingsView: View {
 
     private var proxySection: some View {
         Section {
-            TextField("https://你的域名/v1/food/analyze", text: $settings.proxyEndpointString)
+            TextField("http(s)://服务器:端口", text: $settings.proxyEndpointString)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -132,7 +132,7 @@ struct FoodAnalysisSettingsView: View {
                 .accessibilityIdentifier("food-proxy-endpoint-field")
 
             if !settings.proxyEndpointString.isEmpty && settings.validatedProxyEndpoint == nil {
-                Label("请输入有效的 HTTPS 地址。", systemImage: "exclamationmark.triangle")
+                Label("请输入有效的 HTTP 或 HTTPS 地址。", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
 
@@ -145,7 +145,7 @@ struct FoodAnalysisSettingsView: View {
         } header: {
             Text("自建代理")
         } footer: {
-            Text("Windows Server 部署后填写完整的 /v1/food/analyze HTTPS 地址。App 不会把本机保存的阿里云 Key 发送给代理。")
+            Text("可以填写服务器根地址或完整的 /v1/food/analyze 地址；根地址会自动补全接口路径。App 不会把本机保存的阿里云 Key 发送给代理。")
         }
     }
 
@@ -230,11 +230,7 @@ struct FoodAnalysisSettingsView: View {
 
         operationState = .working("正在检查代理健康状态…")
         do {
-            var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)
-            components?.path = "/health"
-            components?.query = nil
-            components?.fragment = nil
-            guard let healthURL = components?.url else {
+            guard let healthURL = FoodAnalysisProxyEndpoint.healthURL(from: endpoint) else {
                 throw FoodAnalysisError.invalidEndpoint
             }
             var request = URLRequest(url: healthURL)
