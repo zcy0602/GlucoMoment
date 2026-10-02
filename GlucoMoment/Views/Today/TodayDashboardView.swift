@@ -26,7 +26,10 @@ struct TodayDashboardView: View {
             if let snapshot = viewModel.currentSnapshot {
                 CurrentGlucoseCard(snapshot: snapshot, readings: Array(viewModel.compactReadings))
             } else {
-                NoGlucoseDataCard(addAction: presentNewReading)
+                NoGlucoseDataCard(
+                    previousSnapshot: viewModel.previousSnapshot,
+                    addAction: presentNewReading
+                )
             }
 
             MetricsGrid(metrics: viewModel.metrics)
@@ -103,7 +106,7 @@ private struct CurrentGlucoseCard: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("最新记录")
+                    Text("今日最新")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -114,7 +117,8 @@ private struct CurrentGlucoseCard: View {
                             .foregroundStyle(.secondary)
                     }
                     PillTag(title: snapshot.stateLabel, tint: snapshot.stateTint)
-                    Text(snapshot.measuredAt, format: GlucoMomentDateStyle.monthDayTime)
+                    Text(snapshot.measuredAt, format: GlucoMomentDateStyle.time)
+                        .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -154,13 +158,33 @@ private struct CurrentGlucoseCard: View {
 }
 
 private struct NoGlucoseDataCard: View {
+    /// 今天之前最近的一条记录；为 nil 表示用户从未记录过血糖。
+    let previousSnapshot: CurrentGlucoseSnapshot?
     let addAction: () -> Void
 
     var body: some View {
         ContentUnavailableView {
-            Label("还没有血糖记录", systemImage: "drop")
+            Label(previousSnapshot == nil ? "开始记录血糖" : "今天还没测血糖", systemImage: "drop")
         } description: {
-            Text("先记录一条血糖数据，今日概览和趋势会自动更新。")
+            VStack(spacing: 8) {
+                Text(
+                    previousSnapshot == nil
+                        ? "记下第一条血糖，今日概览和趋势会随之生成。"
+                        : "测一次并记录下来，就能看到今天的血糖概览。"
+                )
+
+                if let previousSnapshot {
+                    HStack(spacing: 4) {
+                        Text("上次记录")
+                        Text(previousSnapshot.measuredAt, format: GlucoMomentDateStyle.monthDayTime)
+                        Text("· \(previousSnapshot.value) \(previousSnapshot.unit)")
+                    }
+                    .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityElement(children: .combine)
+                }
+            }
         } actions: {
             Button("记录血糖", systemImage: "plus", action: addAction)
                 .buttonStyle(.borderedProminent)

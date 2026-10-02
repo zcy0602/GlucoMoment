@@ -15,7 +15,10 @@ final class TodayDashboardViewModel {
     private let repository: any GlucoseRepository
 
     private(set) var readings: [GlucoseReading] = []
+    /// 今天最新的一条血糖；今天没有记录时为 nil，首卡显示空状态。
     private(set) var latestReading: GlucoseReading?
+    /// 今天之前最近的一条血糖，仅用于在空状态中提示“上次记录”。
+    private(set) var previousReading: GlucoseReading?
     private(set) var errorMessage: String?
     private(set) var isLoading = false
     var isShowingError = false
@@ -36,6 +39,17 @@ final class TodayDashboardViewModel {
             stateLabel: latestReading.state.label,
             stateTint: latestReading.state.tint,
             measuredAt: latestReading.measuredAt
+        )
+    }
+
+    var previousSnapshot: CurrentGlucoseSnapshot? {
+        guard latestReading == nil, let previousReading else { return nil }
+        return CurrentGlucoseSnapshot(
+            value: formatted(previousReading.value),
+            unit: "mmol/L",
+            stateLabel: previousReading.state.label,
+            stateTint: previousReading.state.tint,
+            measuredAt: previousReading.measuredAt
         )
     }
 
@@ -75,7 +89,15 @@ final class TodayDashboardViewModel {
 
     var nextAction: String {
         guard let latestReading else {
-            return "记录第一条血糖，开始建立属于你的趋势。"
+            guard previousReading != nil else {
+                return "记录第一条血糖，开始建立属于你的趋势。"
+            }
+            // 今天尚无记录时，按时段给出更具体的测量时机提示。
+            let hour = Calendar.current.component(.hour, from: .now)
+            if hour < 10 {
+                return "今天还没有记录。起床后、早餐前测一次空腹血糖，是了解一天状态的好起点。"
+            }
+            return "今天还没有记录。可以在下一餐前测一次，餐后 2 小时再测一次，对照饮食影响。"
         }
 
         switch latestReading.state {
@@ -98,7 +120,13 @@ final class TodayDashboardViewModel {
 
         do {
             readings = try repository.readings(in: todayInterval)
-            latestReading = try repository.latestReading()
+            // readings 按测量时间升序返回，最后一条即今日最新。
+            latestReading = readings.last
+            if latestReading == nil {
+                previousReading = try repository.latestReading()
+            } else {
+                previousReading = nil
+            }
             errorMessage = nil
             isShowingError = false
         } catch {
