@@ -4,8 +4,10 @@
 //
 
 import Foundation
+import ImageIO
 import Testing
 import UIKit
+import UniformTypeIdentifiers
 
 @testable import GlucoMoment
 
@@ -120,6 +122,48 @@ struct FoodScanViewModelTests {
         #expect(viewModel.correctionHistory.isEmpty)
     }
 
+    @Test("读取 EXIF 拍摄时间，按时区偏移换算；没有 EXIF 时返回 nil")
+    func readsCaptureDate() throws {
+        let photo = try Self.jpeg(.red, exifDate: "2026:10:26 12:30:00", offset: "+08:00")
+        #expect(FoodImageProcessor.captureDate(of: photo) == Self.date("2026-10-26T04:30:00Z"))
+        #expect(FoodImageProcessor.captureDate(of: try Self.jpeg(.red)) == nil)
+    }
+
+    @Test("用餐时间取最早一张照片的拍摄时间；旧照片和未来时间不采用")
+    func eatenAtFromCaptureDate() throws {
+        let now = Self.date("2026-10-26T06:00:00Z")
+        let viewModel = makeViewModel()
+
+        viewModel.selectPhotos(
+            [
+                try Self.jpeg(.red, exifDate: "2026:10:26 12:40:00", offset: "+08:00"),
+                try Self.jpeg(.green, exifDate: "2026:10:26 12:30:00", offset: "+08:00"),
+                try Self.jpeg(.blue)
+            ],
+            referenceDate: now
+        )
+        #expect(viewModel.eatenAt == Self.date("2026-10-26T04:30:00Z"))
+        #expect(viewModel.isEatenAtFromPhoto)
+
+        viewModel.selectPhotos([try Self.jpeg(.red, exifDate: "2026:09:01 12:30:00", offset: "+08:00")], referenceDate: now)
+        #expect(viewModel.eatenAt == now)
+        #expect(!viewModel.isEatenAtFromPhoto)
+
+        viewModel.selectPhotos([try Self.jpeg(.red, exifDate: "2026:10:26 18:00:00", offset: "+08:00")], referenceDate: now)
+        #expect(viewModel.eatenAt == now)
+
+        viewModel.selectPhotos([try Self.jpeg(.red)], referenceDate: now)
+        #expect(viewModel.eatenAt == now)
+        #expect(!viewModel.isEatenAtFromPhoto)
+    }
+
+    @Test("上传前的压缩会去掉 EXIF")
+    func preparedPhotoHasNoCaptureDate() async throws {
+        let photo = try Self.jpeg(.red, exifDate: "2026:10:26 12:30:00", offset: "+08:00")
+        let prepared = try await FoodImageProcessor.prepareForAnalysis(photo)
+        #expect(FoodImageProcessor.captureDate(of: prepared) == nil)
+    }
+
     private func makeViewModel() -> FoodScanViewModel {
         FoodScanViewModel(
             analysisService: RecordingFoodAnalysisService(result: Self.result),
@@ -134,6 +178,30 @@ struct FoodScanViewModelTests {
             context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
         }
         return try #require(image.jpegData(compressionQuality: 0.9))
+    }
+
+    /// 生成带 EXIF 拍摄时间的 JPEG，模拟从相册读到的原图
+    private static func jpeg(_ color: UIColor, exifDate: String, offset: String) throws -> Data {
+        let plain = try jpeg(color)
+        let source = try #require(CGImageSourceCreateWithData(plain as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let output = NSMutableData()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil)
+        )
+        let properties: [CFString: Any] = [
+            kCGImagePropertyExifDictionary: [
+                kCGImagePropertyExifDateTimeOriginal: exifDate,
+                kCGImagePropertyExifOffsetTimeOriginal: offset
+            ]
+        ]
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        #expect(CGImageDestinationFinalize(destination))
+        return output as Data
+    }
+
+    private static func date(_ iso8601: String) -> Date {
+        try! Date(iso8601, strategy: .iso8601)
     }
 
     private static let result = FoodRecognitionResult(

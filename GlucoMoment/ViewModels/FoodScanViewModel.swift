@@ -31,6 +31,8 @@ final class FoodScanViewModel {
     var result: FoodRecognitionResult?
     var selectedMealPeriod: MealPeriod
     var eatenAt = Date.now
+    /// `eatenAt` 是否取自照片的拍摄时间（而不是选图时的当前时间）
+    private(set) var isEatenAtFromPhoto = false
     var userNote = ""
     /// 本餐的一句话修正记录，随复核页「完成」写回；换照片或重新识别后清空
     var correctionHistory: [FoodCorrectionTurn] = []
@@ -88,7 +90,13 @@ final class FoodScanViewModel {
         max(0, maxPhotoCount - selectedPhotos.count)
     }
 
-    /// 开始记录新的一餐：替换全部照片并清空描述和结果
+    /// 照片拍摄时间与选图时间相差在此范围内才采用，过早的照片多半是翻出来的旧图
+    static let captureDateLookback: TimeInterval = 7 * 24 * 3_600
+    /// 允许照片时间略晚于当前时间，容忍设备间的时钟误差
+    static let captureDateFutureTolerance: TimeInterval = 5 * 60
+
+    /// 开始记录新的一餐：替换全部照片并清空描述和结果。
+    /// 用餐时间优先取最早一张照片的拍摄时间，读不到或不合理时用选图时间
     func selectPhotos(_ photos: [Data], referenceDate: Date = .now) {
         guard !photos.isEmpty else { return }
 
@@ -96,8 +104,11 @@ final class FoodScanViewModel {
         selectedPhotos = Array(photos.prefix(maxPhotoCount))
         photoRevision += 1
         preparedPhotos = []
-        selectedMealPeriod = MealPeriod.inferred(for: referenceDate)
-        eatenAt = referenceDate
+        let captureDate = Self.plausibleCaptureDate(of: selectedPhotos, referenceDate: referenceDate)
+        let mealDate = captureDate ?? referenceDate
+        selectedMealPeriod = MealPeriod.inferred(for: mealDate)
+        eatenAt = mealDate
+        isEatenAtFromPhoto = captureDate != nil
         userFoodContext = ""
         userNote = ""
         result = nil
@@ -130,6 +141,16 @@ final class FoodScanViewModel {
         } else {
             invalidateAnalysis()
         }
+    }
+
+    private static func plausibleCaptureDate(of photos: [Data], referenceDate: Date) -> Date? {
+        let earliest = referenceDate.addingTimeInterval(-captureDateLookback)
+        let latest = referenceDate.addingTimeInterval(captureDateFutureTolerance)
+        return photos
+            .compactMap(FoodImageProcessor.captureDate(of:))
+            .filter { $0 >= earliest && $0 <= latest }
+            .min()
+            .map { min($0, referenceDate) }
     }
 
     private func invalidateAnalysis() {

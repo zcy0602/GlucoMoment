@@ -537,7 +537,7 @@ private struct FoodReviewSheet: View {
                     Text("说说哪里不对，AI 只改你提到的食物，稳糖分仍按公式计算。可以接着说，连续修正。")
                 }
 
-                Section("餐食信息") {
+                Section {
                     TextField("餐食名称", text: $draft.name)
                     Picker("餐次", selection: $selectedMealPeriod) {
                         ForEach(MealPeriod.allCases) { period in
@@ -548,6 +548,12 @@ private struct FoodReviewSheet: View {
                         .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                     TextField("备注（可选）", text: $userNote, axis: .vertical)
                         .lineLimit(2...4)
+                } header: {
+                    Text("餐食信息")
+                } footer: {
+                    if viewModel.isEatenAtFromPhoto && eatenAt == viewModel.eatenAt {
+                        Text("用餐时间已按照片的拍摄时间填写，可以修改。")
+                    }
                 }
 
                 Section {
