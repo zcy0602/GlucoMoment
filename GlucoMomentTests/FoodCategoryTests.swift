@@ -49,6 +49,17 @@ struct FoodCategoryTests {
         #expect(proxyCategories == FoodCategory.allCases.map(\.rawValue))
     }
 
+    @Test("App 与代理的照片张数上限一致")
+    func imageLimitMatchesProxy() throws {
+        let coreURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Backend/FoodAnalysisProxy/src/core.ts")
+        let core = try String(contentsOf: coreURL, encoding: .utf8)
+
+        #expect(core.contains("export const MAX_IMAGE_COUNT = \(FoodAnalysisImageLimit.maxImageCount);"))
+    }
+
     private func decodeItem(extra: String) throws -> FoodRecognitionItem {
         let json = """
         {"name":"米饭","portionDescription":"一碗","estimatedGramsMin":140,"estimatedGramsMax":160,\

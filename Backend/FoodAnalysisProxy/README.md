@@ -5,7 +5,7 @@
 ## 接口
 
 - `GET /health`：健康检查，不调用模型。
-- `POST /v1/food/analyze`：`multipart/form-data`，图片字段名为 `image`，可重复 1～4 次，按顺序作为同一餐的多张照片。
+- `POST /v1/food/analyze`：`multipart/form-data`，图片字段名为 `image`，可重复 1～6 次，按顺序作为同一餐的多张照片。
 
 代理只记录平台自身的请求元数据。不要在日志中输出表单内容、图片 Base64、模型完整请求或响应。不要把 `.env` 或 API Key 提交到 Git。
 
@@ -101,7 +101,7 @@ server {
     location /v1/food/analyze {
         proxy_pass http://127.0.0.1:8787;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        client_max_body_size 10m;
+        client_max_body_size 25m;
     }
 
     location /health {

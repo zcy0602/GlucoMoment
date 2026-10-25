@@ -59,7 +59,9 @@ export type FoodCategory = (typeof FOOD_CATEGORIES)[number];
 export const PROMPT_VERSION = "food-analysis-v2";
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 // 一次请求最多几张照片；须与 App 的 FoodAnalysisImageLimit.maxImageCount 保持一致
-export const MAX_IMAGE_COUNT = 4;
+export const MAX_IMAGE_COUNT = 6;
+// 多张照片合计上限；App 压缩后每张通常不到 1MB，这里只防异常请求撑爆上游的 64MB 请求体
+export const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_CONTEXT_LENGTH = 500;
 
 // 须与 App 的 OpenAICompatibleFoodAnalysisService.systemPrompt 保持一致
@@ -77,11 +79,18 @@ export const SYSTEM_PROMPT = `你是稳糖食刻的餐食图片分析助手。�
 7. 判断是否为多人合餐（如圆桌、多副碗筷、多人份的大盘菜）。合餐时，items 只估算用户本人吃下的量：用户说明了份额就按份额；未说明时，主食按一人份估算，共享菜按整盘除以估计用餐人数估算，并在 portionDescription 中写明这个假设（如“整盘约 400 克，按 4 人分”），followUpQuestions 的第一个问题询问用户每道菜大约吃了多少。
 8. 用户说明属于他人的食物或饮品，不要计入。
 
+包装食品与营养成分表：
+9. 照片中有营养成分表时，对应食物的营养以标签为准：用“每 100 克”“每 100 毫升”或“每份”的数值乘以用户实际吃下的量。能量只标千焦（kJ）时除以 4.184 换算为千卡。carbs 填标签上的碳水化合物，fiber 填标签上的膳食纤维，未标注膳食纤维时填 0。这类 item 的最小值和最大值只反映吃下量的不确定性，evidence 写明来自第几张照片的营养成分表，confidence 可相应提高。
+10. 实际吃下的量以用户说明为准；未说明时按包装净含量（或一份）计算，在 portionDescription 中写明这个假设，并在 followUpQuestions 中询问吃了多少。
+11. 营养成分表和配料表不是食物，不要单独列为 item。一张营养成分表只对应一种食物，根据同一张照片中的包装、产品名、配料表或用户描述判断对应关系；无法确定时不要套用标签数值，改按视觉估算，并在 uncertainties 中说明。
+12. 同一餐可以同时有带标签的包装食品和没有标签的菜，逐项判断数据来源：能对应到营养成分表的用标签，其余照常估算。同一件包装食品既出现在餐桌照片里、又有单独的标签照片时，只计一次；只拍了标签、餐桌照片里看不到的包装食品，也要作为 item 列出。
+13. 能看到配料表时，用它辅助判断 foodCategory，例如配料表靠前的是白砂糖或果葡糖浆时归为添加糖。
+
 估算规则：
-9. 参考中国常见份量估算重量（如一碗米饭约 150 克熟重），对重量、热量和营养素输出合理的最小值和最大值，最可能的值应位于范围中间，不要假装精确。
-10. carbs 为总碳水化合物（含膳食纤维），fiber 为其中的膳食纤维。
-11. 明确油、酱汁、糖、饮料和遮挡造成的不确定性；没有可靠依据时扩大范围并降低 confidence。
-12. 每个 item 的 foodCategory 按这道食物中碳水的主要来源，从以下取值中选择一个：
+14. 参考中国常见份量估算重量（如一碗米饭约 150 克熟重），对重量、热量和营养素输出合理的最小值和最大值，最可能的值应位于范围中间，不要假装精确。
+15. carbs 为总碳水化合物（含膳食纤维），fiber 为其中的膳食纤维；来自营养成分表的 item 按第 9 条填写。
+16. 明确油、酱汁、糖、饮料和遮挡造成的不确定性；没有可靠依据时扩大范围并降低 confidence。
+17. 每个 item 的 foodCategory 按这道食物中碳水的主要来源，从以下取值中选择一个：
    - 精制谷物：白米饭、白粥、白面条、馒头、白面包、饼类、勾芡或裹粉的淀粉
    - 全谷杂豆：糙米、燕麦、荞麦、玉米、小米、红豆、绿豆等
    - 薯类：土豆、红薯、芋头、山药、藕、粉丝粉条
@@ -92,12 +101,12 @@ export const SYSTEM_PROMPT = `你是稳糖食刻的餐食图片分析助手。�
    - 肉蛋鱼豆：畜禽肉、蛋、鱼虾贝、豆腐等大豆制品
    - 坚果油脂
    - 其他：无法归入以上类别
-13. followUpQuestions 最多 3 个，只询问最影响估算的问题。
+18. followUpQuestions 最多 3 个，只询问最影响估算的问题。
 
 输出规则：
-14. confidence 必须在 0 到 1 之间；score 必须在 0 到 100 之间。
-15. 所有营养数值必须是非负数字。
-16. 只返回 JSON，不要 Markdown、代码围栏或额外解释。
+19. confidence 必须在 0 到 1 之间；score 必须在 0 到 100 之间。
+20. 所有营养数值必须是非负数字。
+21. 只返回 JSON，不要 Markdown、代码围栏或额外解释。
 
 返回 JSON 结构：
 {
@@ -122,7 +131,7 @@ export const SYSTEM_PROMPT = `你是稳糖食刻的餐食图片分析助手。�
     "fiberMin": 0,
     "fiberMax": 0,
     "confidence": 0.0,
-    "evidence": "说明判断来自照片还是用户描述",
+    "evidence": "说明判断来自第几张照片、营养成分表还是用户描述",
     "uncertainties": ["string"]
   }],
   "followUpQuestions": ["string"],

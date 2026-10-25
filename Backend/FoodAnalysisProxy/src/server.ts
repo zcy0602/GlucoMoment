@@ -13,6 +13,7 @@ import {
   PROMPT_VERSION,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_COUNT,
+  MAX_TOTAL_IMAGE_BYTES,
   SYSTEM_PROMPT,
   resolveProvider,
   buildUserPrompt,
@@ -88,13 +89,19 @@ app.post("/v1/food/analyze", (req: Request, res: Response) => {
       // multer 错误
       if (err) {
         const status = err instanceof ClientInputError ? 415 : 422;
+        // multer 对“image 超过张数”和“字段名不是 image”都报 LIMIT_UNEXPECTED_FILE，用字段名区分
+        const multerError = err instanceof multer.MulterError ? err : undefined;
         const tooManyImages =
-          err instanceof multer.MulterError &&
-          (err.code === "LIMIT_FILE_COUNT" ||
-            err.code === "LIMIT_UNEXPECTED_FILE");
+          multerError?.code === "LIMIT_FILE_COUNT" ||
+          (multerError?.code === "LIMIT_UNEXPECTED_FILE" &&
+            multerError.field === "image");
+        const unexpectedField =
+          multerError?.code === "LIMIT_UNEXPECTED_FILE" && !tooManyImages;
         const message = tooManyImages
           ? `一次最多上传 ${MAX_IMAGE_COUNT} 张照片。`
-          : err instanceof ClientInputError
+          : unexpectedField
+            ? "图片字段名必须为 image。"
+            : err instanceof ClientInputError
             ? err.message
             : "图片无效或超过 8MB。";
         res.status(status).json({ message, requestId });
@@ -104,6 +111,11 @@ app.post("/v1/food/analyze", (req: Request, res: Response) => {
       const files = Array.isArray(req.files) ? req.files : [];
       if (files.length === 0 || files.some((file) => file.size === 0)) {
         res.status(422).json({ message: "图片无效或超过 8MB。", requestId });
+        return;
+      }
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      if (totalBytes > MAX_TOTAL_IMAGE_BYTES) {
+        res.status(422).json({ message: "照片总大小超过 20MB。", requestId });
         return;
       }
 

@@ -67,7 +67,8 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
         let boundary = "GlucoMoment-\(requestID.uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 45
+        // 最多 6 张照片时模型响应更慢，与直连 API 保持同样的 60 秒
+        request.timeoutInterval = 60
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(requestID.uuidString, forHTTPHeaderField: "X-Request-Id")

@@ -16,7 +16,7 @@ nonisolated protocol FoodAnalysisService: Sendable {
 
 nonisolated enum FoodAnalysisImageLimit {
     /// 须与代理 `core.ts` 的 `MAX_IMAGE_COUNT` 保持一致
-    static let maxImageCount = 4
+    static let maxImageCount = 6
 }
 
 nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
