@@ -1,5 +1,5 @@
 // 稳糖食刻 — 食物识别代理共用逻辑
-// Cloudflare Worker (index.ts) 和 Node.js (server.ts) 各自 import 此模块。
+// 由 Node.js 入口 server.ts 引用；提示词、模型调用与输出校验都放在这里。
 
 export interface CoreConfig {
   FOOD_AI_PROVIDER?: "qwen" | "glm";

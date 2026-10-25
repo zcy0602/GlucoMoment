@@ -5,54 +5,9 @@
 ## 接口
 
 - `GET /health`：健康检查，不调用模型。
-- `POST /v1/food/analyze`：`multipart/form-data`，图片字段名为 `image`。
+- `POST /v1/food/analyze`：`multipart/form-data`，图片字段名为 `image`，可重复 1～4 次，按顺序作为同一餐的多张照片。
 
-代理只记录平台自身的请求元数据。不要在日志中输出表单内容、图片 Base64、模型完整请求或响应。
-
----
-
-## Cloudflare Worker 部署
-
-### 本地配置
-
-1. 将 `wrangler.jsonc.example` 复制为 `wrangler.jsonc`。
-2. 根据需要设置 `FOOD_AI_PROVIDER`、`FOOD_AI_MODEL` 和 `AI_BASE_URL`。
-   示例配置默认使用支持图像输入的 `qwen3.7-plus`。
-3. 只在 Secret 中保存供应商密钥：
-
-```bash
-npx wrangler secret put QWEN_API_KEY
-# 或
-npx wrangler secret put GLM_API_KEY
-```
-
-不要把 `.dev.vars`、`.env`、`wrangler.jsonc` 或 API Key 提交到 Git。
-
-### 运行
-
-```bash
-npm install
-npm run typecheck
-npm run dev
-```
-
-### 部署
-
-```bash
-npm run deploy
-```
-
-部署完成后，在 iOS App 设置中可以填写服务器根地址：
-
-```text
-https://你的域名/
-```
-
-也可以填写完整的分析接口地址：
-
-```text
-https://你的域名/v1/food/analyze
-```
+代理只记录平台自身的请求元数据。不要在日志中输出表单内容、图片 Base64、模型完整请求或响应。不要把 `.env` 或 API Key 提交到 Git。
 
 ---
 
@@ -174,10 +129,7 @@ https://你的域名/v1/food/analyze
 ## 开发
 
 ```bash
-# Worker 开发（Cloudflare）
-npm run dev
-
-# Node.js 开发（本地热重载）
+# 本地运行（读取 .env）
 npm run dev:server
 
 # 类型检查
@@ -188,7 +140,6 @@ npm run typecheck
 
 ```
 src/
-├── core.ts     # Worker 与 Node.js 共用的纯逻辑
-├── index.ts    # Cloudflare Worker 入口
+├── core.ts     # 提示词、模型调用与输出校验
 └── server.ts   # Node.js Express 入口
 ```
