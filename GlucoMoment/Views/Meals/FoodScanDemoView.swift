@@ -116,6 +116,7 @@ struct FoodScanDemoView: View {
 
             RecognitionSummaryCard(result: result)
             NutritionGrid(result: result)
+            StableScoreCard(result: result)
             SuggestionListCard(suggestions: result.suggestions)
 
             if !result.uncertainties.isEmpty || !result.followUpQuestions.isEmpty {
@@ -375,6 +376,26 @@ private struct FoodReviewSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    LabeledContent("稳糖分") {
+                        Text("\(draft.effectiveScore)")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(Color.brandLeaf)
+                            .contentTransition(.numericText())
+                    }
+                    if let breakdown = draft.stableScore {
+                        Text(breakdown.summaryText)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text(
+                        draft.stableScore == nil
+                            ? "有食物没有选择类别，暂时显示 AI 估算的分数。为每样食物选择类别后，将按公式计算。"
+                            : "修改食物的类别、重量或营养数值后，稳糖分会实时重新计算。"
+                    )
+                }
+
                 Section("餐食信息") {
                     TextField("餐食名称", text: $draft.name)
                     Picker("餐次", selection: $selectedMealPeriod) {
@@ -407,7 +428,8 @@ private struct FoodReviewSheet: View {
                                 fatGrams: 0,
                                 fiberGrams: 0,
                                 confidence: 1,
-                                evidence: "用户手动添加"
+                                evidence: "用户手动添加",
+                                foodCategory: .other
                             )
                         )
                     }
@@ -458,23 +480,37 @@ private struct FoodItemEditor: View {
 
             TextField("份量描述", text: $item.portionDescription)
 
+            Picker("类别", selection: $item.foodCategory) {
+                Text("未选择").tag(FoodCategory?.none)
+                ForEach(FoodCategory.allCases, id: \.self) { category in
+                    Text(category.rawValue).tag(Optional(category))
+                }
+            }
+
             LabeledContent("估计重量") {
-                TextField("克", value: $item.estimatedGrams, format: .number)
-                    .multilineTextAlignment(.trailing)
-                    .keyboardType(.decimalPad)
-                Text("g")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    TextField("克", value: $item.estimatedGrams, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.decimalPad)
+                    Text("g")
+                        .foregroundStyle(.secondary)
+                }
             }
             LabeledContent("热量") {
-                TextField("千卡", value: $item.caloriesKcal, format: .number)
-                    .multilineTextAlignment(.trailing)
-                    .keyboardType(.decimalPad)
-                Text("千卡")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    TextField("千卡", value: $item.caloriesKcal, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.decimalPad)
+                    Text("千卡")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HStack(spacing: 12) {
                 NutrientEditor(title: "碳水", value: $item.carbohydratesGrams)
+                NutrientEditor(title: "膳食纤维", value: $item.fiberGrams)
+            }
+            HStack(spacing: 12) {
                 NutrientEditor(title: "蛋白质", value: $item.proteinGrams)
                 NutrientEditor(title: "脂肪", value: $item.fatGrams)
             }
@@ -860,7 +896,7 @@ private struct RecognitionSummaryCard: View {
 
                 Spacer()
 
-                ScanScoreBadge(score: result.score)
+                ScanScoreBadge(score: result.effectiveScore)
             }
 
             FlowLayout(spacing: 8) {
@@ -882,8 +918,83 @@ private struct NutritionGrid: View {
             NutritionMetric(title: "碳水", value: result.carbohydratesText, icon: "leaf", tint: Color.brandTeal)
             NutritionMetric(title: "蛋白质", value: result.proteinText, icon: "bolt.heart", tint: Color.brandLeaf)
             NutritionMetric(title: "脂肪", value: result.fatText, icon: "drop", tint: Color.brandAmber)
-            NutritionMetric(title: "血糖影响", value: result.glucoseImpact, icon: "waveform.path.ecg", tint: Color.brandRose)
+            NutritionMetric(title: "血糖影响", value: result.effectiveGlucoseImpact, icon: "waveform.path.ecg", tint: Color.brandRose)
         }
+    }
+}
+
+private struct StableScoreCard: View {
+    let result: FoodRecognitionResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("稳糖分怎么来的", systemImage: "function")
+                .font(.headline)
+
+            if let breakdown = result.stableScore {
+                ScoreRow(title: "基础分", detail: "整餐 GL \(breakdown.glycemicLoad.oneDecimalText)", value: breakdown.baseScore, sign: "")
+                ScoreRow(title: "蔬菜", detail: "每餐 \(Int(StableScoreCalculator.vegetableTargetGrams)) 克满分", value: breakdown.vegetableBonus, sign: "+")
+                ScoreRow(title: "蛋白质", detail: "每餐 \(Int(StableScoreCalculator.proteinTargetGrams)) 克满分", value: breakdown.proteinBonus, sign: "+")
+                ScoreRow(title: "全谷物", detail: "占主食 1/3 以上", value: breakdown.wholeGrainBonus, sign: "+")
+                ScoreRow(title: "添加糖", detail: "每克扣 \(StableScoreCalculator.addedSugarPenaltyPerGram.oneDecimalText) 分", value: breakdown.addedSugarPenalty, sign: "−")
+                Divider()
+                LabeledContent("稳糖分") {
+                    Text("\(breakdown.score)")
+                        .font(.headline)
+                        .foregroundStyle(Color.brandLeaf)
+                }
+            } else {
+                Text("这次识别结果缺少食物类别，稳糖分为 AI 估算，仅供参考。可以在「检查并修改识别结果」中为每样食物选择类别。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            NavigationLink {
+                StableScoreMethodView()
+            } label: {
+                Label("评分依据", systemImage: "book.closed")
+                    .font(.subheadline)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct ScoreRow: View {
+    let title: String
+    let detail: String
+    let value: Double
+    let sign: String
+
+    var body: some View {
+        LabeledContent {
+            Text("\(sign)\(value.oneDecimalText)")
+                .monospacedDigit()
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private extension StableScoreBreakdown {
+    var summaryText: String {
+        "基础 \(baseScore.oneDecimalText) + 蔬菜 \(vegetableBonus.oneDecimalText) + 蛋白质 \(proteinBonus.oneDecimalText)"
+            + " + 全谷物 \(wholeGrainBonus.oneDecimalText) − 添加糖 \(addedSugarPenalty.oneDecimalText)"
+            + " · 整餐 GL \(glycemicLoad.oneDecimalText)（\(glucoseImpact)）"
+    }
+}
+
+private extension Double {
+    var oneDecimalText: String {
+        formatted(.number.precision(.fractionLength(0...1)))
     }
 }
 

@@ -191,6 +191,13 @@ struct MealReviewDetailView: View {
       if let promptVersion = meal.promptVersion {
         LabeledContent("提示词版本", value: promptVersion)
       }
+      if meal.score != nil {
+        NavigationLink {
+          StableScoreMethodView()
+        } label: {
+          Label("稳糖分的评分依据", systemImage: "book.closed")
+        }
+      }
 
       Text(
         meal.source == .healthKit

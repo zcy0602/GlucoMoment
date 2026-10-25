@@ -20,6 +20,20 @@ nonisolated struct FoodRecognitionResult: Hashable, Sendable {
     var model: String
     var promptVersion: String
 
+    /// 按公式计算的稳糖分；条目缺少食物类别时为 nil
+    var stableScore: StableScoreBreakdown? {
+        StableScoreCalculator.calculate(items: items)
+    }
+
+    /// 界面显示和保存都使用这个分数；无法按公式计算时沿用模型估算的 `score`
+    var effectiveScore: Int {
+        stableScore?.score ?? score
+    }
+
+    var effectiveGlucoseImpact: String {
+        stableScore?.glucoseImpact ?? glucoseImpact
+    }
+
     var caloriesKcal: Double {
         items.reduce(0) { $0 + $1.caloriesKcal }
     }

@@ -37,7 +37,8 @@ struct DemoFoodAnalysisService: FoodAnalysisService {
                     fatGrams: 7,
                     fiberGrams: 0,
                     confidence: 0.94,
-                    evidence: evidence
+                    evidence: evidence,
+                    foodCategory: .protein
                 ),
                 FoodRecognitionItem(
                     name: "藜麦",
@@ -50,7 +51,8 @@ struct DemoFoodAnalysisService: FoodAnalysisService {
                     fiberGrams: 3,
                     confidence: 0.84,
                     evidence: evidence,
-                    uncertainties: ["无法仅凭照片确认实际重量"]
+                    uncertainties: ["无法仅凭照片确认实际重量"],
+                    foodCategory: .wholeGrainLegume
                 ),
                 FoodRecognitionItem(
                     name: "蔬菜与牛油果",
@@ -63,7 +65,8 @@ struct DemoFoodAnalysisService: FoodAnalysisService {
                     fiberGrams: 8,
                     confidence: 0.79,
                     evidence: evidence,
-                    uncertainties: ["酱汁与烹饪用油不可见"]
+                    uncertainties: ["酱汁与烹饪用油不可见"],
+                    foodCategory: .vegetable
                 )
             ],
             suggestions: [
