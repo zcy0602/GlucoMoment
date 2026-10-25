@@ -249,7 +249,7 @@ final class HealthKitStoreClient: HealthKitStoreClientProtocol {
         let meal = MealRecord(
             id: correlation.uuid,
             eatenAt: correlation.startDate,
-            mealPeriod: inferredMealPeriod(for: correlation.startDate),
+            mealPeriod: MealPeriod.inferred(for: correlation.startDate),
             title: title,
             source: .healthKit,
             note: "从健康 App 同步；餐次根据记录时间推断。",
@@ -300,14 +300,6 @@ final class HealthKitStoreClient: HealthKitStoreClientProtocol {
                 HKMetadataKeyWasUserEntered: true
             ]
         )
-    }
-
-    private func inferredMealPeriod(for date: Date) -> MealPeriod {
-        switch Calendar.current.component(.hour, from: date) {
-        case ..<10: .breakfast
-        case 10..<16: .lunch
-        default: .dinner
-        }
     }
 
     private func ownedLocalRecordID(from sample: HKSample) -> UUID? {

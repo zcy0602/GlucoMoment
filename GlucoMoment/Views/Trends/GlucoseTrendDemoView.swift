@@ -81,6 +81,7 @@ private struct TrendChartCard: View {
             HStack {
                 ForEach(axisReadings) { reading in
                     Text(viewModel.axisLabel(for: reading))
+                        .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)

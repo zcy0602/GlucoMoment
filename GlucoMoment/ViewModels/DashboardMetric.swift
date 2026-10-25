@@ -9,7 +9,8 @@ import Foundation
 import SwiftUI
 
 struct DashboardMetric: Identifiable {
-    let id = UUID()
+    var id: String { title }
+
     let title: String
     let value: String
     let caption: String

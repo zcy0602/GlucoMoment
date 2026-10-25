@@ -14,11 +14,13 @@ struct HealthKitIntroductionView: View {
         VStack(spacing: 24) {
             Spacer(minLength: 12)
 
-            Image(systemName: "heart.text.square.fill")
+            Image("Icon - Apple Health")
+                .resizable()
+                .scaledToFit()
                 .font(.system(size: 56))
                 .foregroundStyle(Color.brandTeal)
-                .frame(width: 104, height: 104)
-                .background(Color.brandMint, in: RoundedRectangle(cornerRadius: 16))
+                .frame(width: 100, height: 100)
+                .shadow(radius: 2)
                 .accessibilityHidden(true)
 
             VStack(spacing: 10) {
@@ -44,7 +46,7 @@ struct HealthKitIntroductionView: View {
                 PermissionDetailRow(
                     systemImage: "hand.raised.fill",
                     title: "由你控制",
-                    detail: "你可以在健康 App 中随时调整每一项数据的读写权限。同步数据不会交给 AI 食物识别。"
+                    detail: "你可以在健康 App 中随时调整每一项数据的读写权限。"
                 )
             }
 

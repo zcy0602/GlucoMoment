@@ -29,14 +29,6 @@ struct MealHistoryView: View {
         DemoScreen(title: "饮食历史") {
             HistoryDateSelector(selectedDate: $viewModel.selectedDate)
 
-            Picker("筛选餐次", selection: $viewModel.selectedMeal) {
-                Text("全部").tag(nil as MealPeriod?)
-                ForEach(viewModel.mealOptions) { option in
-                    Text(option.rawValue).tag(option as MealPeriod?)
-                }
-            }
-            .pickerStyle(.segmented)
-
             SectionHeader("餐食记录", subtitle: viewModel.recordSubtitle)
 
             if let errorMessage = viewModel.errorMessage {
@@ -47,31 +39,40 @@ struct MealHistoryView: View {
                 )
             } else if viewModel.meals.isEmpty {
                 ContentUnavailableView(
-                    "当天没有匹配的餐食记录",
+                    "当天没有餐食记录",
                     systemImage: "fork.knife.circle",
-                    description: Text("可以切换日期或餐次继续查询。")
+                    description: Text("可以切换日期继续查询。")
                 )
                 .frame(minHeight: 180)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(viewModel.meals) { meal in
-                        NavigationLink {
-                            MealReviewDetailView(
-                                meal: meal,
-                                photoStore: photoStore
+                VStack(spacing: 20) {
+                    ForEach(viewModel.mealSections) { section in
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(
+                                section.period.rawValue,
+                                subtitle: "\(section.meals.count) 条记录"
                             )
-                        } label: {
-                            MealRecordCard(meal: meal)
+
+                            ForEach(section.meals) { meal in
+                                NavigationLink {
+                                    MealReviewDetailView(
+                                        meal: meal,
+                                        photoStore: photoStore
+                                    )
+                                } label: {
+                                    MealRecordCard(meal: meal)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("meal-history-record-\(meal.id.uuidString)")
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("meal-history-record-\(meal.id.uuidString)")
                     }
                 }
             }
         }
         .refreshable(action: viewModel.load)
         .task(
-            id: "\(viewModel.selectedDate.timeIntervalSinceReferenceDate)-\(viewModel.selectedMeal?.rawValue ?? "全部")-\(healthDataRevision)"
+            id: "\(viewModel.selectedDate.timeIntervalSinceReferenceDate)-\(healthDataRevision)"
         ) {
             viewModel.load()
         }

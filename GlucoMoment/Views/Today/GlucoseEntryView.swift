@@ -62,11 +62,7 @@ struct GlucoseEntryView: View {
                         .lineLimit(2...5)
                 }
 
-                Section {
-                    Text("目标范围暂按 3.9–10.0 mmol/L 展示。本 App 用于记录与回顾，不替代医生诊断或治疗建议。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+               
             }
             .navigationTitle(viewModel.isEditing ? "编辑血糖" : "记录血糖")
             .navigationBarTitleDisplayMode(.inline)

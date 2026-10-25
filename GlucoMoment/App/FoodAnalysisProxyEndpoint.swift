@@ -13,7 +13,7 @@ nonisolated enum FoodAnalysisProxyEndpoint {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed),
               let scheme = url.scheme?.lowercased(),
-              ["https", "http"].contains(scheme),
+              scheme == "https",
               url.host != nil,
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return nil

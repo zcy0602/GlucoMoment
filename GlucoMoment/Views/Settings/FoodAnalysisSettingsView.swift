@@ -13,6 +13,8 @@ struct FoodAnalysisSettingsView: View {
     @State private var hasStoredAPIKey = false
     @State private var operationState: OperationState = .idle
     @State private var confirmsKeyDeletion = false
+    @State private var availableModels: [String] = []
+    @State private var showsModelPicker = false
     @FocusState private var focusedField: Field?
 
     var body: some View {
@@ -34,8 +36,9 @@ struct FoodAnalysisSettingsView: View {
             switch settings.mode {
             case .demo:
                 demoSection
-            case .directQwen:
-                directQwenSection
+            case .directAPI:
+                apiEndpointSection
+                apiKeySection
             case .proxy:
                 proxySection
             }
@@ -48,7 +51,7 @@ struct FoodAnalysisSettingsView: View {
 
             Section("隐私与费用") {
                 Label("识别照片和补充描述会发送到当前选择的服务。", systemImage: "photo.badge.arrow.down")
-                Label("App 内直连的调用费用由所填写 Key 对应的阿里云账户承担。", systemImage: "creditcard")
+                Label("自定义 API 的调用费用由所填写 Key 对应的服务商账户承担。", systemImage: "creditcard")
                 Label("营养结果是模型估算，不代替医疗或用药建议。", systemImage: "cross.case")
             }
             .font(.footnote)
@@ -57,15 +60,24 @@ struct FoodAnalysisSettingsView: View {
         .navigationTitle("AI 食物识别")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
-        .task { await refreshCredentialStatus() }
+        // 切换服务商时重新读取该服务商的 Key 状态，并清空上一家的输入与结果
+        .task(id: settings.apiProvider) {
+            apiKeyInput = ""
+            availableModels = []
+            operationState = .idle
+            await refreshCredentialStatus()
+        }
         .onDisappear { apiKeyInput = "" }
+        .sheet(isPresented: $showsModelPicker) {
+            ModelPickerSheet(models: availableModels, selection: $settings.apiModel)
+        }
         .alert("删除 API Key？", isPresented: $confirmsKeyDeletion) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 Task { await deleteAPIKey() }
             }
         } message: {
-            Text("将从本机钥匙串删除，之后使用 App 内直连需要重新填写。")
+            Text("将从本机钥匙串删除 \(settings.apiProvider.title) 的 Key，之后使用需要重新填写。")
         }
     }
 
@@ -76,11 +88,66 @@ struct FoodAnalysisSettingsView: View {
         }
     }
 
-    private var directQwenSection: some View {
+    private var apiEndpointSection: some View {
         Section {
-            LabeledContent("模型", value: FoodAnalysisSettings.qwenModel)
-            LabeledContent("API 地址", value: "阿里云中国大陆")
+            Picker("服务商", selection: $settings.apiProvider) {
+                ForEach(FoodAnalysisAPIProvider.allCases) { provider in
+                    Text(provider.title).tag(provider)
+                }
+            }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API 地址")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("https://example.com/v1", text: $settings.apiBaseURL)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .baseURL)
+                    .accessibilityIdentifier("api-base-url-field")
+                if !settings.apiBaseURL.isEmpty && !settings.isAPIBaseURLValid {
+                    Text("地址需以 https:// 开头")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("模型")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("模型名称", text: $settings.apiModel)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focusedField, equals: .model)
+                        .accessibilityIdentifier("api-model-field")
+
+                    Button("选择模型", systemImage: "list.bullet") {
+                        Task { await loadModels() }
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(!hasStoredAPIKey || !settings.isAPIBaseURLValid || operationState.isWorking)
+                    .accessibilityHint("从服务商获取可用模型列表")
+                }
+            }
+
+            if settings.apiProvider != .custom && !settings.isUsingProviderDefaults {
+                Button("恢复预设地址和模型") {
+                    settings.restoreProviderDefaults()
+                }
+            }
+        } header: {
+            Text("服务商与模型")
+        } footer: {
+            Text("支持 OpenAI Chat Completions 兼容接口，地址填写到 /v1 一级即可。请选择支持图片输入的视觉模型；保存 Key 后可点列表按钮从服务商获取模型。")
+        }
+    }
+
+    private var apiKeySection: some View {
+        Section {
             HStack {
                 Label(
                     hasStoredAPIKey ? "已保存到钥匙串" : "尚未保存 API Key",
@@ -95,7 +162,7 @@ struct FoodAnalysisSettingsView: View {
                 .autocorrectionDisabled()
                 .privacySensitive()
                 .focused($focusedField, equals: .apiKey)
-                .accessibilityIdentifier("qwen-api-key-field")
+                .accessibilityIdentifier("api-key-field")
 
             Button {
                 Task { await saveAndTestAPIKey() }
@@ -103,7 +170,7 @@ struct FoodAnalysisSettingsView: View {
                 Label("保存并测试连接", systemImage: "checkmark.shield")
             }
             .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || operationState.isWorking)
-            .accessibilityIdentifier("save-test-qwen-key")
+            .accessibilityIdentifier("save-test-api-key")
 
             if hasStoredAPIKey {
                 Button("测试已保存的 Key") {
@@ -116,36 +183,26 @@ struct FoodAnalysisSettingsView: View {
                 }
             }
         } header: {
-            Text("阿里云百炼直连")
+            Text("\(settings.apiProvider.title) API Key")
         } footer: {
-            Text("Key 使用系统 Keychain 的仅本机、解锁时可访问级别保存，不写入 SwiftData、UserDefaults 或项目文件。")
+            Text("每个服务商的 Key 分别使用系统 Keychain 的仅本机、解锁时可访问级别保存，不写入 SwiftData、UserDefaults 或项目文件。连接测试会发送一张纯色小图，确认模型能识别图片。")
         }
     }
 
     private var proxySection: some View {
         Section {
-            TextField("http(s)://服务器:端口", text: $settings.proxyEndpointString)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($focusedField, equals: .proxyEndpoint)
-                .accessibilityIdentifier("food-proxy-endpoint-field")
-
-            if !settings.proxyEndpointString.isEmpty && settings.validatedProxyEndpoint == nil {
-                Label("请输入有效的 HTTP 或 HTTPS 地址。", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-            }
+            LabeledContent("代理服务器", value: FoodAnalysisSettings.proxyServerAddress)
 
             Button {
                 Task { await testProxy() }
             } label: {
                 Label("测试代理连接", systemImage: "network")
             }
-            .disabled(settings.validatedProxyEndpoint == nil || operationState.isWorking)
+            .disabled(operationState.isWorking)
         } header: {
             Text("自建代理")
         } footer: {
-            Text("可以填写服务器根地址或完整的 /v1/food/analyze 地址；根地址会自动补全接口路径。App 不会把本机保存的阿里云 Key 发送给代理。")
+            Text("代理地址已由 App 预置。App 不会把本机保存的任何 API Key 发送给代理。")
         }
     }
 
@@ -171,7 +228,7 @@ struct FoodAnalysisSettingsView: View {
 
     private func refreshCredentialStatus() async {
         do {
-            hasStoredAPIKey = try await credentialStore.apiKey() != nil
+            hasStoredAPIKey = try await credentialStore.apiKey(for: settings.apiProvider) != nil
         } catch {
             operationState = .failure(error.localizedDescription)
         }
@@ -181,11 +238,11 @@ struct FoodAnalysisSettingsView: View {
         focusedField = nil
         operationState = .working("正在保存并验证…")
         do {
-            try await credentialStore.save(apiKey: apiKeyInput)
+            try await credentialStore.save(apiKey: apiKeyInput, for: settings.apiProvider)
             apiKeyInput = ""
             hasStoredAPIKey = true
-            settings.mode = .directQwen
-            try await performQwenConnectionTest()
+            settings.mode = .directAPI
+            try await performConnectionTest()
         } catch {
             operationState = .failure(error.localizedDescription)
         }
@@ -193,26 +250,60 @@ struct FoodAnalysisSettingsView: View {
 
     private func testStoredAPIKey() async {
         focusedField = nil
-        operationState = .working("正在验证阿里云连接…")
+        operationState = .working("正在验证 \(settings.apiProvider.title) 连接…")
         do {
-            try await performQwenConnectionTest()
+            try await performConnectionTest()
         } catch {
             operationState = .failure(error.localizedDescription)
         }
     }
 
-    private func performQwenConnectionTest() async throws {
-        guard let key = try await credentialStore.apiKey() else {
+    private func performConnectionTest() async throws {
+        guard let configuration = settings.directAPIConfiguration else {
+            throw FoodAnalysisError.incompleteConfiguration
+        }
+        guard let key = try await credentialStore.apiKey(for: configuration.provider) else {
             throw FoodAnalysisError.missingCredential
         }
-        let message = try await QwenFoodAnalysisService(apiKey: key).testConnection()
+        let message = try await OpenAICompatibleFoodAnalysisService(
+            apiKey: key,
+            configuration: configuration
+        ).testConnection()
         operationState = .success(message)
+    }
+
+    private func loadModels() async {
+        focusedField = nil
+        operationState = .working("正在获取模型列表…")
+        do {
+            guard let baseURL = OpenAICompatibleConfiguration.normalizedBaseURL(
+                from: settings.apiBaseURL
+            ) else {
+                throw FoodAnalysisError.incompleteConfiguration
+            }
+            guard let key = try await credentialStore.apiKey(for: settings.apiProvider) else {
+                throw FoodAnalysisError.missingCredential
+            }
+            let models = try await OpenAICompatibleFoodAnalysisService.availableModels(
+                apiKey: key,
+                baseURL: baseURL
+            )
+            guard !models.isEmpty else {
+                operationState = .failure("服务商没有返回可用模型，请手动填写模型名称。")
+                return
+            }
+            availableModels = models
+            operationState = .idle
+            showsModelPicker = true
+        } catch {
+            operationState = .failure("无法获取模型列表：\(error.localizedDescription) 可以手动填写模型名称。")
+        }
     }
 
     private func deleteAPIKey() async {
         operationState = .working("正在删除…")
         do {
-            try await credentialStore.deleteAPIKey()
+            try await credentialStore.deleteAPIKey(for: settings.apiProvider)
             apiKeyInput = ""
             hasStoredAPIKey = false
             operationState = .success("已从本机钥匙串删除 API Key")
@@ -223,10 +314,7 @@ struct FoodAnalysisSettingsView: View {
 
     private func testProxy() async {
         focusedField = nil
-        guard let endpoint = settings.validatedProxyEndpoint else {
-            operationState = .failure("代理地址无效。")
-            return
-        }
+        let endpoint = FoodAnalysisSettings.proxyEndpoint
 
         operationState = .working("正在检查代理健康状态…")
         do {
@@ -249,8 +337,9 @@ struct FoodAnalysisSettingsView: View {
 
 private extension FoodAnalysisSettingsView {
     enum Field: Hashable {
+        case baseURL
+        case model
         case apiKey
-        case proxyEndpoint
     }
 
     enum OperationState: Equatable {
@@ -265,10 +354,58 @@ private extension FoodAnalysisSettingsView {
     }
 }
 
+/// 从服务商返回的模型列表中选择；列表可能很长，提供搜索
+private struct ModelPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let models: [String]
+    @Binding var selection: String
+    @State private var searchText = ""
+
+    private var filteredModels: [String] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return models }
+        return models.filter { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredModels, id: \.self) { model in
+                Button {
+                    selection = model
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(model)
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if model == selection {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "搜索模型")
+            .overlay {
+                if filteredModels.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .navigationTitle("选择模型")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: dismiss.callAsFunction)
+                }
+            }
+        }
+    }
+}
+
 #Preview {
     NavigationStack {
         FoodAnalysisSettingsView(
-            settings: FoodAnalysisSettings(mode: .directQwen),
+            settings: FoodAnalysisSettings(mode: .directAPI),
             credentialStore: InMemoryFoodAnalysisCredentialStore()
         )
     }

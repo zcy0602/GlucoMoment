@@ -29,28 +29,18 @@ struct MealLogDemoView: View {
     }
 
     var body: some View {
-        @Bindable var viewModel = viewModel
-
         DemoScreen(title: viewModel.title) {
-            Picker("餐次", selection: $viewModel.selectedMeal) {
-                ForEach(viewModel.mealOptions) { option in
-                    Text(option.rawValue).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-
             MealSuggestionCard(
                 title: viewModel.suggestionTitle,
                 text: viewModel.suggestionText,
                 tags: viewModel.suggestionTags
             )
-            
+
             NavigationLink {
                 FoodScanDemoView(
                     analysisService: analysisService,
                     mealRepository: repository,
-                    photoStore: photoStore,
-                    initialMealPeriod: viewModel.selectedMeal
+                    photoStore: photoStore
                 )
             } label: {
                 Label("拍照识别饮食", systemImage: "camera.fill")
@@ -59,7 +49,7 @@ struct MealLogDemoView: View {
             .buttonStyle(.borderedProminent)
             .foregroundStyle(Color.brandMint)
             .controlSize(.large)
-            
+
             SectionHeader("今日餐食")
             if let loadErrorMessage = viewModel.loadErrorMessage {
                 ContentUnavailableView(
@@ -69,28 +59,37 @@ struct MealLogDemoView: View {
                 )
             } else if viewModel.meals.isEmpty {
                 ContentUnavailableView(
-                    "今天还没有\(viewModel.selectedMeal.rawValue)记录",
+                    "今天还没有餐食记录",
                     systemImage: "fork.knife.circle",
                     description: Text("拍摄餐食并确认识别结果后，会保存在这里。")
                 )
                 .frame(minHeight: 180)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(viewModel.meals) { meal in
-                        NavigationLink {
-                            MealReviewDetailView(
-                                meal: meal,
-                                photoStore: photoStore
+                VStack(spacing: 20) {
+                    ForEach(viewModel.mealSections) { section in
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(
+                                section.period.rawValue,
+                                subtitle: "\(section.meals.count) 条记录"
                             )
-                        } label: {
-                            MealRecordCard(meal: meal)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("meal-record-\(meal.id.uuidString)")
-                        .contextMenu {
-                            if meal.source != .healthKit {
-                                Button("删除记录", systemImage: "trash", role: .destructive) {
-                                    Task { await viewModel.delete(meal) }
+
+                            ForEach(section.meals) { meal in
+                                NavigationLink {
+                                    MealReviewDetailView(
+                                        meal: meal,
+                                        photoStore: photoStore
+                                    )
+                                } label: {
+                                    MealRecordCard(meal: meal)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("meal-record-\(meal.id.uuidString)")
+                                .contextMenu {
+                                    if meal.source != .healthKit {
+                                        Button("删除记录", systemImage: "trash", role: .destructive) {
+                                            Task { await viewModel.delete(meal) }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -98,7 +97,7 @@ struct MealLogDemoView: View {
                 }
             }
         }
-        .task(id: "\(viewModel.selectedMeal.rawValue)-\(healthDataRevision)") {
+        .task(id: healthDataRevision) {
             viewModel.reload()
         }
         .toolbar {
@@ -159,6 +158,7 @@ struct MealRecordCard: View {
                     Text(
                         "\(meal.eatenAt.formatted(GlucoMomentDateStyle.time)) · \(carbohydrateSummary)"
                     )
+                        .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

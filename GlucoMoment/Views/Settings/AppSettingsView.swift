@@ -15,6 +15,7 @@ struct AppSettingsView: View {
             Section {
                 LabeledContent {
                     Text(healthKitCoordinator.statusText)
+                        .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.trailing)
                 } label: {

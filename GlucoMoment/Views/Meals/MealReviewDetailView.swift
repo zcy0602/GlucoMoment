@@ -83,7 +83,7 @@ struct MealReviewDetailView: View {
     if let photoData, let image = UIImage(data: photoData) {
       Image(uiImage: image)
         .resizable()
-        .scaledToFit()
+        .scaledToFill()
         .frame(height: 240)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(alignment: .bottomLeading) {
@@ -119,6 +119,7 @@ struct MealReviewDetailView: View {
           Text(meal.title)
             .font(.title3.weight(.semibold))
           Text(meal.eatenAt, format: GlucoMomentDateStyle.fullDateTime)
+            .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
             .font(.subheadline)
             .foregroundStyle(.secondary)
         }

@@ -11,9 +11,7 @@ import Observation
 final class MealHistoryViewModel {
     private let repository: any MealRepository
 
-    let mealOptions = MealPeriod.allCases
     var selectedDate: Date
-    var selectedMeal: MealPeriod?
     private(set) var meals: [MealRecord] = []
     private(set) var errorMessage: String?
 
@@ -30,6 +28,14 @@ final class MealHistoryViewModel {
         }
     }
 
+    var mealSections: [MealPeriodSection] {
+        MealPeriod.allCases.compactMap { period in
+            let periodMeals = meals.filter { $0.mealPeriod == period }
+            guard !periodMeals.isEmpty else { return nil }
+            return MealPeriodSection(period: period, meals: periodMeals)
+        }
+    }
+
     func load() {
         guard let interval = Calendar.current.dateInterval(of: .day, for: selectedDate) else {
             meals = []
@@ -38,11 +44,11 @@ final class MealHistoryViewModel {
         }
 
         do {
-            meals = try repository.meals(in: interval, period: selectedMeal)
+            meals = try repository.meals(in: interval, period: nil)
             errorMessage = nil
         } catch {
             meals = []
-            errorMessage = "读取历史饮食失败：(error.localizedDescription)"
+            errorMessage = "读取历史饮食失败：\(error.localizedDescription)"
         }
     }
 

@@ -31,12 +31,13 @@ final class FoodScanViewModel {
         analysisService: any FoodAnalysisService,
         mealRepository: any MealRepository,
         photoStore: any MealPhotoStoring,
-        initialMealPeriod: MealPeriod = .lunch
+        referenceDate: Date = .now
     ) {
         self.analysisService = analysisService
         self.mealRepository = mealRepository
         self.photoStore = photoStore
-        selectedMealPeriod = initialMealPeriod
+        selectedMealPeriod = MealPeriod.inferred(for: referenceDate)
+        eatenAt = referenceDate
     }
 
     var scanStateText: String {
@@ -72,10 +73,12 @@ final class FoodScanViewModel {
         phase == .preparingImage || phase == .analyzing || phase == .saving
     }
 
-    func selectPhoto(_ data: Data) {
+    func selectPhoto(_ data: Data, referenceDate: Date = .now) {
         cancelAnalysis()
         selectedPhotoData = data
         preparedPhotoData = nil
+        selectedMealPeriod = MealPeriod.inferred(for: referenceDate)
+        eatenAt = referenceDate
         userFoodContext = ""
         userNote = ""
         result = nil

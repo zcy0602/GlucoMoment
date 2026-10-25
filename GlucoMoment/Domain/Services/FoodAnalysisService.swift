@@ -16,6 +16,8 @@ nonisolated protocol FoodAnalysisService: Sendable {
 nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
     case invalidEndpoint
     case missingCredential
+    case incompleteConfiguration
+    case visionUnsupported(model: String)
     case invalidImage
     case invalidResponse
     case networkUnavailable
@@ -26,7 +28,11 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
         case .invalidEndpoint:
             "食物识别服务地址无效。"
         case .missingCredential:
-            "尚未配置阿里云 API Key，请前往设置。"
+            "尚未配置 API Key，请前往设置。"
+        case .incompleteConfiguration:
+            "请在设置中填写有效的 HTTPS API 地址和模型名称。"
+        case .visionUnsupported(let model):
+            "\(model) 已连通，但没有正确识别测试图片，可能不支持图片输入。请换用视觉模型。"
         case .invalidImage:
             "照片无法处理，请重新选择。"
         case .invalidResponse:
@@ -44,7 +50,8 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
             statusCode == 408 || statusCode == 429 || (500...599).contains(statusCode)
         case .networkUnavailable:
             true
-        case .invalidEndpoint, .missingCredential, .invalidImage, .invalidResponse:
+        case .invalidEndpoint, .missingCredential, .incompleteConfiguration,
+             .visionUnsupported, .invalidImage, .invalidResponse:
             false
         }
     }

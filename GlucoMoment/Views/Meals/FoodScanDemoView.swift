@@ -28,18 +28,22 @@ struct FoodScanDemoView: View {
     init(
         analysisService: any FoodAnalysisService,
         mealRepository: any MealRepository,
-        photoStore: any MealPhotoStoring,
-        initialMealPeriod: MealPeriod = .lunch
+        photoStore: any MealPhotoStoring
     ) {
         _viewModel = State(
             initialValue: FoodScanViewModel(
                 analysisService: analysisService,
                 mealRepository: mealRepository,
-                photoStore: photoStore,
-                initialMealPeriod: initialMealPeriod
+                photoStore: photoStore
             )
         )
     }
+
+#if DEBUG
+    fileprivate init(previewViewModel: FoodScanViewModel) {
+        _viewModel = State(initialValue: previewViewModel)
+    }
+#endif
 
     var body: some View {
         DemoScreen(title: viewModel.title) {
@@ -63,13 +67,6 @@ struct FoodScanDemoView: View {
                 )
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("完成") {
-                    dismiss()
-                }
-            }
-        }
         .sheet(item: $presentedSheet) { destination in
             switch destination {
             case .camera:
@@ -87,7 +84,6 @@ struct FoodScanDemoView: View {
 #endif
             case .context:
                 FoodContextSheet(viewModel: viewModel)
-                    .presentationDetents([.medium, .large])
             case .review:
                 FoodReviewSheet(viewModel: viewModel)
             }
@@ -261,6 +257,14 @@ private struct FoodContextSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: FoodScanViewModel
 
+    private let hintColumns = [
+        GridItem(
+            .adaptive(minimum: 132),
+            spacing: 8,
+            alignment: .leading
+        )
+    ]
+
     var body: some View {
         @Bindable var viewModel = viewModel
 
@@ -294,7 +298,11 @@ private struct FoodContextSheet: View {
                 }
 
                 Section("可以补充") {
-                    FlowLayout(spacing: 8) {
+                    LazyVGrid(
+                        columns: hintColumns,
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
                         ForEach(["份量", "烹饪方式", "酱汁与用油", "包装营养信息", "实际吃掉的比例"], id: \.self) { hint in
                             Button(hint) {
                                 appendHint(hint)
@@ -305,28 +313,30 @@ private struct FoodContextSheet: View {
                     }
                     .padding(.vertical, 4)
                 }
-
-                Section {
-                    Button {
-                        startAnalysis(skipDescription: false)
-                    } label: {
-                        Label("开始识别", systemImage: "sparkles")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("跳过描述并识别") {
-                        startAnalysis(skipDescription: true)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
             }
             .navigationTitle("补充食物信息")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
+                    Button("取消", action: dismiss.callAsFunction)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Menu("完成") {
+                        Section("确认开始识别？") {
+                            Button("开始识别", systemImage: "sparkles") {
+                                startAnalysis(skipDescription: false)
+                            }
+
+                            // 只有填写了补充信息时，“忽略”才有意义
+                            if !viewModel.userFoodContext
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                                .isEmpty {
+                                Button("忽略补充信息并识别", systemImage: "text.badge.minus") {
+                                    startAnalysis(skipDescription: true)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -971,14 +981,207 @@ private struct ScanScoreBadge: View {
     }
 }
 
-#Preview {
+#if DEBUG
+@MainActor
+private func makeFoodScanPreviewViewModel(
+    dependencies: AppDependencies,
+    phase: FoodScanPhase,
+    includesPhoto: Bool = true,
+    includesResult: Bool = false,
+    userFoodContext: String = ""
+) -> FoodScanViewModel {
+    let viewModel = FoodScanViewModel(
+        analysisService: dependencies.foodAnalysisService,
+        mealRepository: dependencies.mealRepository,
+        photoStore: dependencies.mealPhotoStore
+    )
+
+    if includesPhoto {
+        viewModel.selectedPhotoData = foodScanPreviewPhotoData()
+    }
+    if includesResult {
+        viewModel.result = foodScanPreviewResult()
+    }
+
+    viewModel.userFoodContext = userFoodContext
+    viewModel.phase = phase
+    return viewModel
+}
+
+private func foodScanPreviewPhotoData() -> Data {
+#if canImport(UIKit)
+    UIImage(named: "ScanFoodSample")?.jpegData(compressionQuality: 0.9) ?? Data()
+#elseif os(macOS)
+    NSImage(named: NSImage.Name("ScanFoodSample"))?.tiffRepresentation ?? Data()
+#else
+    Data()
+#endif
+}
+
+private func foodScanPreviewResult() -> FoodRecognitionResult {
+    FoodRecognitionResult(
+        name: "鸡胸藜麦沙拉",
+        confidence: 0.92,
+        glucoseImpact: "中等",
+        score: 82,
+        items: [
+            FoodRecognitionItem(
+                name: "鸡胸肉",
+                portionDescription: "约一掌大小",
+                estimatedGrams: 120,
+                caloriesKcal: 198,
+                carbohydratesGrams: 0,
+                proteinGrams: 32,
+                fatGrams: 7,
+                fiberGrams: 0,
+                confidence: 0.94,
+                evidence: "根据照片中的外观和份量估算"
+            ),
+            FoodRecognitionItem(
+                name: "藜麦",
+                portionDescription: "约半碗",
+                estimatedGrams: 100,
+                caloriesKcal: 120,
+                carbohydratesGrams: 21,
+                proteinGrams: 4,
+                fatGrams: 2,
+                fiberGrams: 3,
+                confidence: 0.84,
+                evidence: "结合照片和用户补充信息估算",
+                uncertainties: ["无法仅凭照片确认实际重量"]
+            ),
+            FoodRecognitionItem(
+                name: "蔬菜与牛油果",
+                portionDescription: "约一碗",
+                estimatedGrams: 180,
+                caloriesKcal: 132,
+                carbohydratesGrams: 24,
+                proteinGrams: 4,
+                fatGrams: 9,
+                fiberGrams: 8,
+                confidence: 0.79,
+                evidence: "根据照片中可见的食材估算",
+                uncertainties: ["酱汁与烹饪用油不可见"]
+            )
+        ],
+        suggestions: [
+            "确认酱汁和主食份量后，碳水估算会更可靠。",
+            "蛋白质较充足，可以先吃鸡胸肉和蔬菜再吃主食。"
+        ],
+        followUpQuestions: ["沙拉中是否添加了含糖酱汁？"],
+        uncertainties: ["无法从单张照片确认隐藏的油、糖和全部配料。"],
+        provider: "demo",
+        model: "food-analysis-demo-v1",
+        promptVersion: "food-analysis-v1"
+    )
+}
+
+#Preview("1 · 选择照片") {
     let dependencies = AppDependencies.preview()
     NavigationStack {
         FoodScanDemoView(
-            analysisService: dependencies.foodAnalysisService,
-            mealRepository: dependencies.mealRepository,
-            photoStore: dependencies.mealPhotoStore
+            previewViewModel: makeFoodScanPreviewViewModel(
+                dependencies: dependencies,
+                phase: .idle,
+                includesPhoto: false
+            )
         )
     }
     .modelContainer(dependencies.modelContainer)
 }
+
+#Preview("2 · 等待补充信息") {
+    let dependencies = AppDependencies.preview()
+    NavigationStack {
+        FoodScanDemoView(
+            previewViewModel: makeFoodScanPreviewViewModel(
+                dependencies: dependencies,
+                phase: .awaitingContext
+            )
+        )
+    }
+    .modelContainer(dependencies.modelContainer)
+}
+
+#Preview("3 · 补充食物信息") {
+    let dependencies = AppDependencies.preview()
+    FoodContextSheet(
+        viewModel: makeFoodScanPreviewViewModel(
+            dependencies: dependencies,
+            phase: .awaitingContext,
+            userFoodContext: "鸡肉清炒，沙拉酱只放了一半。"
+        )
+    )
+    .modelContainer(dependencies.modelContainer)
+}
+
+#Preview("4 · 正在优化照片") {
+    let dependencies = AppDependencies.preview()
+    NavigationStack {
+        FoodScanDemoView(
+            previewViewModel: makeFoodScanPreviewViewModel(
+                dependencies: dependencies,
+                phase: .preparingImage
+            )
+        )
+    }
+    .modelContainer(dependencies.modelContainer)
+}
+
+#Preview("5 · 正在识别") {
+    let dependencies = AppDependencies.preview()
+    NavigationStack {
+        FoodScanDemoView(
+            previewViewModel: makeFoodScanPreviewViewModel(
+                dependencies: dependencies,
+                phase: .analyzing,
+                userFoodContext: "鸡肉清炒，沙拉酱只放了一半。"
+            )
+        )
+    }
+    .modelContainer(dependencies.modelContainer)
+}
+
+#Preview("6 · 识别结果") {
+    let dependencies = AppDependencies.preview()
+    NavigationStack {
+        FoodScanDemoView(
+            previewViewModel: makeFoodScanPreviewViewModel(
+                dependencies: dependencies,
+                phase: .needsReview,
+                includesResult: true,
+                userFoodContext: "鸡肉清炒，沙拉酱只放了一半。"
+            )
+        )
+    }
+    .modelContainer(dependencies.modelContainer)
+}
+
+#Preview("7 · 检查并修改") {
+    let dependencies = AppDependencies.preview()
+    FoodReviewSheet(
+        viewModel: makeFoodScanPreviewViewModel(
+            dependencies: dependencies,
+            phase: .needsReview,
+            includesResult: true,
+            userFoodContext: "鸡肉清炒，沙拉酱只放了一半。"
+        )
+    )
+    .modelContainer(dependencies.modelContainer)
+}
+
+#Preview("8 · 已保存") {
+    let dependencies = AppDependencies.preview()
+    NavigationStack {
+        FoodScanDemoView(
+            previewViewModel: makeFoodScanPreviewViewModel(
+                dependencies: dependencies,
+                phase: .saved,
+                includesResult: true,
+                userFoodContext: "鸡肉清炒，沙拉酱只放了一半。"
+            )
+        )
+    }
+    .modelContainer(dependencies.modelContainer)
+}
+#endif

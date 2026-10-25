@@ -12,6 +12,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     case meals
     case trends
     case plan
+    case settings
 
     var id: String { rawValue }
 
@@ -40,7 +41,11 @@ enum AppTab: String, CaseIterable, Identifiable {
             )
         case .plan:
             CarePlanDemoView()
+        case .settings:
+            AppSettingsView(healthKitCoordinator: dependencies.healthKitCoordinator, foodAnalysisSettings: dependencies.foodAnalysisSettings, foodAnalysisCredentialStore: dependencies.foodAnalysisCredentialStore)
         }
+        
+                
     }
 
     @ViewBuilder
@@ -54,6 +59,10 @@ enum AppTab: String, CaseIterable, Identifiable {
             Label("趋势", systemImage: "chart.xyaxis.line")
         case .plan:
             Label("方案", systemImage: "checklist")
+        case .settings:
+            Label("设置", systemImage: "gearshape")
         }
+        
+            
     }
 }

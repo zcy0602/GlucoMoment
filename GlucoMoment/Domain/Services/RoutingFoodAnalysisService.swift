@@ -33,11 +33,18 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
                 userFoodContext: userFoodContext,
                 mealPeriod: mealPeriod
             )
-        case .directQwen:
-            guard let apiKey = try await credentialStore.apiKey(), !apiKey.isEmpty else {
+        case .directAPI:
+            guard let apiConfiguration = configuration.directAPI else {
+                throw FoodAnalysisError.incompleteConfiguration
+            }
+            guard let apiKey = try await credentialStore.apiKey(for: apiConfiguration.provider),
+                  !apiKey.isEmpty else {
                 throw FoodAnalysisError.missingCredential
             }
-            return try await QwenFoodAnalysisService(apiKey: apiKey).analyze(
+            return try await OpenAICompatibleFoodAnalysisService(
+                apiKey: apiKey,
+                configuration: apiConfiguration
+            ).analyze(
                 imageData: imageData,
                 userFoodContext: userFoodContext,
                 mealPeriod: mealPeriod

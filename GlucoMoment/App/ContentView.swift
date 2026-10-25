@@ -26,25 +26,15 @@ struct ContentView: View {
                         dependencies: dependencies,
                         healthDataRevision: healthKitCoordinator.dataRevision
                     )
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                NavigationLink {
-                                    AppSettingsView(
-                                        healthKitCoordinator: healthKitCoordinator,
-                                        foodAnalysisSettings: dependencies.foodAnalysisSettings,
-                                        foodAnalysisCredentialStore: dependencies.foodAnalysisCredentialStore
-                                    )
-                                } label: {
-                                    Label("设置", systemImage: "gearshape")
-                                }
-                                .accessibilityIdentifier("app-settings-link")
-                            }
-                        }
+                        
                 }
+                
                 .tabItem { tab.label }
                 .tag(tab)
             }
+            
         }
+        .tabViewStyle(.sidebarAdaptable)
         .tint(Color.brandTeal)
         .task { await healthKitCoordinator.handleLaunch() }
         .sheet(item: $healthKitCoordinator.presentedSheet) { sheet in

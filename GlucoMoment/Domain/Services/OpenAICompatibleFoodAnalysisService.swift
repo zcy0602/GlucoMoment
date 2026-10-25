@@ -1,32 +1,34 @@
 //
-//  QwenFoodAnalysisService.swift
+//  OpenAICompatibleFoodAnalysisService.swift
 //  GlucoMoment
 //
 
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
-actor QwenFoodAnalysisService: FoodAnalysisService {
+/// 通过 OpenAI Chat Completions 兼容协议直连用户自选的服务商与模型
+actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
     static let promptVersion = "food-analysis-v1"
 
     private let apiKey: String
-    private let endpoint: URL
-    private let model: String
+    private let configuration: OpenAICompatibleConfiguration
     private let session: URLSession
     private let maximumRetryCount: Int
 
     init(
         apiKey: String,
-        endpoint: URL = FoodAnalysisSettings.qwenEndpoint,
-        model: String = FoodAnalysisSettings.qwenModel,
+        configuration: OpenAICompatibleConfiguration,
         session: URLSession = .shared,
         maximumRetryCount: Int = 2
     ) {
         self.apiKey = apiKey
-        self.endpoint = endpoint
-        self.model = model
+        self.configuration = configuration
         self.session = session
         self.maximumRetryCount = maximumRetryCount
     }
+
+    private var model: String { configuration.model }
 
     func analyze(
         imageData: Data,
@@ -60,23 +62,45 @@ actor QwenFoodAnalysisService: FoodAnalysisService {
         throw lastError ?? FoodAnalysisError.invalidResponse
     }
 
+    /// 发送一张纯红色小图并要求说出颜色，同时验证 Key、地址、模型和图片输入能力
     func testConnection() async throws -> String {
-        let body: [String: Any] = [
-            "model": model,
-            "messages": [[
+        let imageURL = "data:image/jpeg;base64,\(Self.connectionTestImage.base64EncodedString())"
+        let body = requestBody(
+            messages: [[
                 "role": "user",
-                "content": "只回复 QWEN_API_OK"
+                "content": [
+                    ["type": "image_url", "image_url": ["url": imageURL]],
+                    ["type": "text", "text": "这张图片是什么颜色？只回复颜色名称。"]
+                ]
             ]],
-            "enable_thinking": false,
-            "temperature": 0,
-            "max_completion_tokens": 32
-        ]
-        let data = try await send(body: body)
-        let envelope = try decodeEnvelope(data)
-        guard envelope.content.trimmingCharacters(in: .whitespacesAndNewlines).contains("QWEN_API_OK") else {
+            maxTokens: 32
+        )
+        let content = try await decodeEnvelope(send(body: body)).content.lowercased()
+        guard content.contains("红") || content.contains("red") else {
+            throw FoodAnalysisError.visionUnsupported(model: model)
+        }
+        return "\(model) 连接成功，支持图片识别"
+    }
+
+    /// 读取服务商的模型列表；部分服务商不提供该接口，调用方应允许手动填写模型名
+    static func availableModels(
+        apiKey: String,
+        baseURL: URL,
+        session: URLSession = .shared
+    ) async throws -> [String] {
+        var request = URLRequest(url: baseURL.appending(path: "models"))
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        do {
+            let list = try JSONDecoder().decode(ModelListResponse.self, from: data)
+            return Set(list.data.map(\.id)).sorted()
+        } catch {
             throw FoodAnalysisError.invalidResponse
         }
-        return "\(model) 连接成功"
     }
 
     private func performAnalysis(
@@ -85,39 +109,39 @@ actor QwenFoodAnalysisService: FoodAnalysisService {
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
         let imageURL = "data:image/jpeg;base64,\(imageData.base64EncodedString())"
-        let body: [String: Any] = [
-            "model": model,
-            "messages": [
-                ["role": "system", "content": Self.systemPrompt],
-                [
-                    "role": "user",
-                    "content": [
-                        ["type": "image_url", "image_url": ["url": imageURL]],
-                        [
-                            "type": "text",
-                            "text": Self.userPrompt(
-                                context: userFoodContext,
-                                mealPeriod: mealPeriod,
-                                locale: "简体中文（zh-CN）"
-                            )
-                        ]
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": Self.systemPrompt],
+            [
+                "role": "user",
+                "content": [
+                    ["type": "image_url", "image_url": ["url": imageURL]],
+                    [
+                        "type": "text",
+                        "text": Self.userPrompt(
+                            context: userFoodContext,
+                            mealPeriod: mealPeriod,
+                            locale: "简体中文（zh-CN）"
+                        )
                     ]
                 ]
-            ],
-            "response_format": ["type": "json_object"],
-            "enable_thinking": false,
-            "temperature": 0.1,
-            "max_completion_tokens": 2500
+            ]
         ]
 
-        let data = try await send(body: body)
+        let data: Data
+        do {
+            data = try await send(body: requestBody(messages: messages, maxTokens: 2500, jsonMode: true))
+        } catch FoodAnalysisError.requestFailed(statusCode: 400, _) {
+            // 部分兼容服务不支持 JSON 模式；提示词已要求只返回 JSON，去掉后重试一次
+            data = try await send(body: requestBody(messages: messages, maxTokens: 2500, jsonMode: false))
+        }
+
         let content = try decodeEnvelope(data).content
         let payloadData = try Self.extractJSONObject(from: content)
 
         do {
             let payload = try JSONDecoder().decode(FoodAnalysisPayloadDTO.self, from: payloadData)
             return try payload.makeResult(
-                provider: "qwen-direct",
+                provider: configuration.provider.resultIdentifier,
                 model: model,
                 promptVersion: Self.promptVersion
             )
@@ -128,14 +152,36 @@ actor QwenFoodAnalysisService: FoodAnalysisService {
         }
     }
 
+    /// 通用服务商只发送协议中最基础的字段；各家对 temperature、token 上限等参数的
+    /// 名称和取值约束不一致，发送了反而容易被拒绝。百炼保留原有的调优参数。
+    private func requestBody(
+        messages: [[String: Any]],
+        maxTokens: Int,
+        jsonMode: Bool = false
+    ) -> [String: Any] {
+        var body: [String: Any] = [
+            "model": model,
+            "messages": messages
+        ]
+        if jsonMode {
+            body["response_format"] = ["type": "json_object"]
+        }
+        if configuration.provider.usesDashScopeExtensions {
+            body["enable_thinking"] = false
+            body["temperature"] = jsonMode ? 0.1 : 0
+            body["max_completion_tokens"] = maxTokens
+        }
+        return body
+    }
+
     private func send(body: [String: Any]) async throws -> Data {
         guard JSONSerialization.isValidJSONObject(body) else {
             throw FoodAnalysisError.invalidResponse
         }
 
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: configuration.chatCompletionsURL)
         request.httpMethod = "POST"
-        request.timeoutInterval = 45
+        request.timeoutInterval = 60
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -143,33 +189,64 @@ actor QwenFoodAnalysisService: FoodAnalysisService {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return data
+    }
+
+    private static func validate(response: URLResponse, data: Data) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw FoodAnalysisError.invalidResponse
         }
         guard (200...299).contains(httpResponse.statusCode) else {
-            let message = (try? JSONDecoder().decode(QwenErrorEnvelope.self, from: data))?.resolvedMessage
+            let message = (try? JSONDecoder().decode(APIErrorEnvelope.self, from: data))?.resolvedMessage
             throw FoodAnalysisError.requestFailed(
                 statusCode: httpResponse.statusCode,
                 message: message
             )
         }
-        return data
     }
 
-    private func decodeEnvelope(_ data: Data) throws -> QwenResponseEnvelope {
+    private func decodeEnvelope(_ data: Data) throws -> ChatResponseMessage {
         do {
-            let response = try JSONDecoder().decode(QwenChatResponse.self, from: data)
-            guard let envelope = response.choices.first?.message,
-                  !envelope.content.isEmpty else {
+            let response = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
+            guard let message = response.choices.first?.message,
+                  !message.content.isEmpty else {
                 throw FoodAnalysisError.invalidResponse
             }
-            return envelope
+            return message
         } catch let error as FoodAnalysisError {
             throw error
         } catch {
             throw FoodAnalysisError.invalidResponse
         }
     }
+
+    /// 64×64 纯红色 JPEG，满足各家对图片最小尺寸的要求
+    private static let connectionTestImage: Data = {
+        let size = 64
+        guard let context = CGContext(
+            data: nil,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return Data() }
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+
+        let output = NSMutableData()
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithData(
+                output,
+                UTType.jpeg.identifier as CFString,
+                1,
+                nil
+              ) else { return Data() }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? output as Data : Data()
+    }()
 
     private static func extractJSONObject(from content: String) throws -> Data {
         let cleaned = content
@@ -252,19 +329,27 @@ actor QwenFoodAnalysisService: FoodAnalysisService {
     """
 }
 
-private nonisolated struct QwenChatResponse: Decodable, Sendable {
-    let choices: [QwenChoice]
+private nonisolated struct ChatCompletionResponse: Decodable, Sendable {
+    let choices: [ChatChoice]
 }
 
-private nonisolated struct QwenChoice: Decodable, Sendable {
-    let message: QwenResponseEnvelope
+private nonisolated struct ChatChoice: Decodable, Sendable {
+    let message: ChatResponseMessage
 }
 
-private nonisolated struct QwenResponseEnvelope: Decodable, Sendable {
+private nonisolated struct ChatResponseMessage: Decodable, Sendable {
     let content: String
 }
 
-private nonisolated struct QwenErrorEnvelope: Decodable, Sendable {
+private nonisolated struct ModelListResponse: Decodable, Sendable {
+    struct Model: Decodable, Sendable {
+        let id: String
+    }
+
+    let data: [Model]
+}
+
+private nonisolated struct APIErrorEnvelope: Decodable, Sendable {
     struct Detail: Decodable, Sendable {
         let message: String?
     }

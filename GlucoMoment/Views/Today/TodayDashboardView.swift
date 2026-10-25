@@ -24,7 +24,15 @@ struct TodayDashboardView: View {
 
         DemoScreen(title: viewModel.title) {
             if let snapshot = viewModel.currentSnapshot {
-                CurrentGlucoseCard(snapshot: snapshot, readings: Array(viewModel.compactReadings))
+                NavigationLink {
+                    GlucoseHistoryView(
+                        repository: repository,
+                        healthDataRevision: healthDataRevision
+                    )
+                } label: {
+                    CurrentGlucoseCard(snapshot: snapshot, readings: Array(viewModel.compactReadings))
+                }
+                .buttonStyle(.plain)
             } else {
                 NoGlucoseDataCard(
                     previousSnapshot: viewModel.previousSnapshot,
@@ -125,11 +133,21 @@ private struct CurrentGlucoseCard: View {
 
                 Spacer()
 
-                Image(systemName: "heart.text.square")
-                    .font(.title)
-                    .foregroundStyle(Color.brandTeal)
-                    .frame(width: 48, height: 48)
-                    .background(Color.brandMint, in: RoundedRectangle(cornerRadius: 16))
+                HStack(spacing: 12) {
+                    Image(systemName: "heart.text.square")
+                        .font(.title)
+                        .foregroundStyle(Color.brandTeal)
+                        .frame(width: 48, height: 48)
+                        .background(
+                            Color.brandMint,
+                            in: RoundedRectangle(cornerRadius: 16)
+                        )
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
             }
 
             ReadingSparkBars(readings: readings)
@@ -208,6 +226,7 @@ private struct ReadingSparkBars: View {
                     .accessibilityLabel(
                         "\(reading.measuredAt.formatted(GlucoMomentDateStyle.time))，\(reading.value.formatted(.number.precision(.fractionLength(1)))) mmol/L，\(reading.state.label)"
                     )
+                    .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
             }
         }
     }
@@ -268,6 +287,7 @@ struct GlucoseReadingRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(reading.measuredAt, format: GlucoMomentDateStyle.time)
+                    .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                 Text(reading.source.label)
                     .font(.caption)

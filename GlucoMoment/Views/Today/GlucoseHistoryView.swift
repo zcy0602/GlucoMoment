@@ -9,6 +9,7 @@ import SwiftUI
 struct GlucoseHistoryView: View {
     private let healthDataRevision: Int
     @State private var viewModel: GlucoseHistoryViewModel
+    @State private var isMovingForward = false
 
     init(repository: any GlucoseRepository, healthDataRevision: Int = 0) {
         self.healthDataRevision = healthDataRevision
@@ -55,14 +56,29 @@ struct GlucoseHistoryView: View {
                             onEdit: nil,
                             onDelete: nil
                         )
+                        .transition(readingTransition)
                     }
                 }
+                .animation(.snappy, value: viewModel.readings.map(\.id))
             }
         }
         .refreshable(action: viewModel.load)
+        .onChange(of: viewModel.selectedDate) { oldDate, newDate in
+            isMovingForward = newDate > oldDate
+        }
         .task(id: "\(viewModel.selectedDate.timeIntervalSinceReferenceDate)-\(healthDataRevision)") {
             viewModel.load()
         }
+    }
+
+    private var readingTransition: AnyTransition {
+        let insertionEdge: Edge = isMovingForward ? .trailing : .leading
+        let removalEdge: Edge = isMovingForward ? .leading : .trailing
+
+        return .asymmetric(
+            insertion: .move(edge: insertionEdge).combined(with: .opacity),
+            removal: .move(edge: removalEdge).combined(with: .opacity)
+        )
     }
 }
 

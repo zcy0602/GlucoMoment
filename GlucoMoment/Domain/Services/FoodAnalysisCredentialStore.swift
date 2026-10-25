@@ -6,10 +6,23 @@
 import Foundation
 import Security
 
+/// 每个服务商单独保存一个 Key，切换服务商不需要重新填写
 nonisolated protocol FoodAnalysisCredentialStoring: Sendable {
-    func apiKey() async throws -> String?
-    func save(apiKey: String) async throws
-    func deleteAPIKey() async throws
+    func apiKey(for provider: FoodAnalysisAPIProvider) async throws -> String?
+    func save(apiKey: String, for provider: FoodAnalysisAPIProvider) async throws
+    func deleteAPIKey(for provider: FoodAnalysisAPIProvider) async throws
+}
+
+nonisolated enum FoodAnalysisAPIKeyValidator {
+    /// 各家 Key 格式不同（sk-、AIza、带点号等），只做基本校验
+    static func normalized(_ apiKey: String) throws -> String {
+        let normalized = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count >= 8,
+              !normalized.contains(where: \.isWhitespace) else {
+            throw CredentialStoreError.invalidKey
+        }
+        return normalized
+    }
 }
 
 nonisolated enum CredentialStoreError: LocalizedError, Sendable {
@@ -20,7 +33,7 @@ nonisolated enum CredentialStoreError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidKey:
-            "请输入有效的阿里云百炼 API Key。"
+            "请输入有效的 API Key。"
         case .unexpectedData:
             "钥匙串中的 API Key 无法读取。"
         case .securityStatus(let status):
@@ -31,14 +44,13 @@ nonisolated enum CredentialStoreError: LocalizedError, Sendable {
 
 actor KeychainFoodAnalysisCredentialStore: FoodAnalysisCredentialStoring {
     private let service: String
-    private let account = "QwenModelStudioAPIKey"
 
     init(service: String = "com.zcy0602.GlucoMoment.food-analysis") {
         self.service = service
     }
 
-    func apiKey() throws -> String? {
-        var query = baseQuery
+    func apiKey(for provider: FoodAnalysisAPIProvider) throws -> String? {
+        var query = baseQuery(for: provider)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -53,12 +65,12 @@ actor KeychainFoodAnalysisCredentialStore: FoodAnalysisCredentialStoring {
         return key
     }
 
-    func save(apiKey: String) throws {
-        let normalized = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.hasPrefix("sk-"), normalized.count >= 20,
-              let data = normalized.data(using: .utf8) else {
+    func save(apiKey: String, for provider: FoodAnalysisAPIProvider) throws {
+        let normalized = try FoodAnalysisAPIKeyValidator.normalized(apiKey)
+        guard let data = normalized.data(using: .utf8) else {
             throw CredentialStoreError.invalidKey
         }
+        let baseQuery = baseQuery(for: provider)
 
         let attributes: [String: Any] = [
             kSecValueData as String: data,
@@ -78,41 +90,42 @@ actor KeychainFoodAnalysisCredentialStore: FoodAnalysisCredentialStoring {
         }
     }
 
-    func deleteAPIKey() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+    func deleteAPIKey(for provider: FoodAnalysisAPIProvider) throws {
+        let status = SecItemDelete(baseQuery(for: provider) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw CredentialStoreError.securityStatus(status)
         }
     }
 
-    private var baseQuery: [String: Any] {
+    /// 百炼沿用旧版账户名，升级后已保存的 Key 继续可用
+    private static func account(for provider: FoodAnalysisAPIProvider) -> String {
+        provider == .dashScope ? "QwenModelStudioAPIKey" : "FoodAnalysisAPIKey.\(provider.rawValue)"
+    }
+
+    private func baseQuery(for provider: FoodAnalysisAPIProvider) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: Self.account(for: provider),
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any
         ]
     }
 }
 
 actor InMemoryFoodAnalysisCredentialStore: FoodAnalysisCredentialStoring {
-    private var storedKey: String?
+    private var storedKeys: [FoodAnalysisAPIProvider: String]
 
-    init(apiKey: String? = nil) {
-        storedKey = apiKey
+    init(apiKeys: [FoodAnalysisAPIProvider: String] = [:]) {
+        storedKeys = apiKeys
     }
 
-    func apiKey() -> String? { storedKey }
+    func apiKey(for provider: FoodAnalysisAPIProvider) -> String? { storedKeys[provider] }
 
-    func save(apiKey: String) throws {
-        let normalized = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.hasPrefix("sk-"), normalized.count >= 20 else {
-            throw CredentialStoreError.invalidKey
-        }
-        storedKey = normalized
+    func save(apiKey: String, for provider: FoodAnalysisAPIProvider) throws {
+        storedKeys[provider] = try FoodAnalysisAPIKeyValidator.normalized(apiKey)
     }
 
-    func deleteAPIKey() {
-        storedKey = nil
+    func deleteAPIKey(for provider: FoodAnalysisAPIProvider) {
+        storedKeys[provider] = nil
     }
 }
