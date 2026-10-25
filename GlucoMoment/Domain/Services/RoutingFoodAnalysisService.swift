@@ -25,14 +25,23 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
+        try await resolveService().analyze(
+            images: images,
+            userFoodContext: userFoodContext,
+            mealPeriod: mealPeriod
+        )
+    }
+
+    func correct(_ request: FoodCorrectionRequest) async throws -> FoodCorrectionOutcome {
+        try await resolveService().correct(request)
+    }
+
+    /// 每次调用都按当前设置选择服务，模式修改立即生效
+    private func resolveService() async throws -> any FoodAnalysisService {
         let configuration = await configurationProvider()
         switch configuration.mode {
         case .demo:
-            return try await DemoFoodAnalysisService().analyze(
-                images: images,
-                userFoodContext: userFoodContext,
-                mealPeriod: mealPeriod
-            )
+            return DemoFoodAnalysisService()
         case .directAPI:
             guard let apiConfiguration = configuration.directAPI else {
                 throw FoodAnalysisError.incompleteConfiguration
@@ -41,25 +50,17 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
                   !apiKey.isEmpty else {
                 throw FoodAnalysisError.missingCredential
             }
-            return try await OpenAICompatibleFoodAnalysisService(
+            return OpenAICompatibleFoodAnalysisService(
                 apiKey: apiKey,
                 configuration: apiConfiguration
-            ).analyze(
-                images: images,
-                userFoodContext: userFoodContext,
-                mealPeriod: mealPeriod
             )
         case .proxy:
             guard let endpoint = configuration.proxyEndpoint else {
                 throw FoodAnalysisError.invalidEndpoint
             }
-            return try await RemoteFoodAnalysisService(
+            return RemoteFoodAnalysisService(
                 endpoint: endpoint,
                 installationIdentifier: installationIdentifier
-            ).analyze(
-                images: images,
-                userFoodContext: userFoodContext,
-                mealPeriod: mealPeriod
             )
         }
     }

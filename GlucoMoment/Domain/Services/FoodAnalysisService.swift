@@ -12,6 +12,9 @@ nonisolated protocol FoodAnalysisService: Sendable {
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult
+
+    /// 一句话修正：只修改用户提到的条目，返回合并后的完整结果
+    func correct(_ request: FoodCorrectionRequest) async throws -> FoodCorrectionOutcome
 }
 
 nonisolated enum FoodAnalysisImageLimit {
@@ -28,6 +31,7 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
     case invalidResponse
     case networkUnavailable
     case requestFailed(statusCode: Int, message: String?)
+    case correctionRemovedAllItems
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +51,8 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
             "网络连接不可用，请检查网络后重试。"
         case .requestFailed(let statusCode, let message):
             message ?? "识别请求失败（\(statusCode)）。"
+        case .correctionRemovedAllItems:
+            "修正后这一餐没有剩下任何食物。如果这餐不是你吃的，可以直接取消记录。"
         }
     }
 
@@ -57,7 +63,7 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
         case .networkUnavailable:
             true
         case .invalidEndpoint, .missingCredential, .incompleteConfiguration,
-             .visionUnsupported, .invalidImage, .invalidResponse:
+             .visionUnsupported, .invalidImage, .invalidResponse, .correctionRemovedAllItems:
             false
         }
     }

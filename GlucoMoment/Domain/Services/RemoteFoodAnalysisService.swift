@@ -28,16 +28,60 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
+        let data = try await post(
+            to: endpoint,
+            fields: [
+                "mealPeriod": mealPeriod?.rawValue ?? "",
+                "userFoodContext": userFoodContext ?? ""
+            ],
+            images: images
+        )
+
+        do {
+            return try JSONDecoder().decode(FoodAnalysisProxyResponseDTO.self, from: data).makeResult()
+        } catch {
+            throw FoodAnalysisError.invalidResponse
+        }
+    }
+
+    func correct(_ request: FoodCorrectionRequest) async throws -> FoodCorrectionOutcome {
+        guard let correctionURL = FoodAnalysisProxyEndpoint.correctionURL(from: endpoint) else {
+            throw FoodAnalysisError.invalidEndpoint
+        }
+
+        let data = try await post(
+            to: correctionURL,
+            fields: [
+                "mealPeriod": request.mealPeriod?.rawValue ?? "",
+                "userFoodContext": request.userFoodContext ?? "",
+                "currentResult": FoodCorrectionRecord.recordJSON(for: request.current),
+                "history": FoodCorrectionRecord.historyJSON(request.history),
+                "instruction": request.instruction
+            ],
+            images: request.images
+        )
+
+        let patch: FoodCorrectionPatch
+        do {
+            patch = try JSONDecoder().decode(FoodCorrectionPayloadDTO.self, from: data).makePatch()
+        } catch {
+            throw FoodAnalysisError.invalidResponse
+        }
+        return try patch.apply(to: request.current)
+    }
+
+    /// 发送 multipart 请求并返回成功响应的原始数据；重试时沿用同一个请求 ID
+    private func post(to url: URL, fields: [String: String], images: [Data]) async throws -> Data {
         let requestID = UUID()
         var lastError: (any Error)?
 
         for attempt in 0...maximumRetryCount {
             do {
                 return try await performRequest(
+                    url: url,
                     requestID: requestID,
-                    images: images,
-                    userFoodContext: userFoodContext,
-                    mealPeriod: mealPeriod
+                    fields: fields,
+                    images: images
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -59,13 +103,13 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
     }
 
     private func performRequest(
+        url: URL,
         requestID: UUID,
-        images: [Data],
-        userFoodContext: String?,
-        mealPeriod: MealPeriod?
-    ) async throws -> FoodRecognitionResult {
+        fields: [String: String],
+        images: [Data]
+    ) async throws -> Data {
         let boundary = "GlucoMoment-\(requestID.uuidString)"
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         // 最多 6 张照片时模型响应更慢，与直连 API 保持同样的 60 秒
         request.timeoutInterval = 60
@@ -75,13 +119,11 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
         request.setValue(installationIdentifier, forHTTPHeaderField: "X-Install-Id")
         request.httpBody = MultipartFormData.makeBody(
             boundary: boundary,
-            fields: [
+            fields: fields.merging([
                 "requestId": requestID.uuidString,
                 "schemaVersion": "1",
-                "locale": "zh-CN",
-                "mealPeriod": mealPeriod?.rawValue ?? "",
-                "userFoodContext": userFoodContext ?? ""
-            ],
+                "locale": "zh-CN"
+            ]) { current, _ in current },
             images: images
         )
 
@@ -97,12 +139,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
                 message: payload?.message
             )
         }
-
-        do {
-            return try JSONDecoder().decode(FoodAnalysisProxyResponseDTO.self, from: data).makeResult()
-        } catch {
-            throw FoodAnalysisError.invalidResponse
-        }
+        return data
     }
 }
 

@@ -32,6 +32,11 @@ final class FoodScanViewModel {
     var selectedMealPeriod: MealPeriod
     var eatenAt = Date.now
     var userNote = ""
+    /// 本餐的一句话修正记录，随复核页「完成」写回；换照片或重新识别后清空
+    var correctionHistory: [FoodCorrectionTurn] = []
+
+    /// 第一版修正只发文字；修正接口已支持附带照片，改为 true 即把本餐照片一并发送
+    static let sendsPhotosWithCorrection = false
 
     init(
         analysisService: any FoodAnalysisService,
@@ -96,6 +101,7 @@ final class FoodScanViewModel {
         userFoodContext = ""
         userNote = ""
         result = nil
+        correctionHistory = []
         phase = .awaitingContext
     }
 
@@ -119,6 +125,7 @@ final class FoodScanViewModel {
         if selectedPhotos.isEmpty {
             preparedPhotos = []
             result = nil
+            correctionHistory = []
             phase = .idle
         } else {
             invalidateAnalysis()
@@ -128,6 +135,7 @@ final class FoodScanViewModel {
     private func invalidateAnalysis() {
         preparedPhotos = []
         result = nil
+        correctionHistory = []
         phase = .awaitingContext
     }
 
@@ -145,6 +153,26 @@ final class FoodScanViewModel {
     func cancelAnalysis() {
         analysisTask?.cancel()
         analysisTask = nil
+    }
+
+    /// 按一句话说明修正复核页的草稿；不直接改动 `result`，由复核页决定是否采用
+    func correct(
+        _ draft: FoodRecognitionResult,
+        instruction: String,
+        history: [FoodCorrectionTurn],
+        mealPeriod: MealPeriod
+    ) async throws -> FoodCorrectionOutcome {
+        let images = Self.sendsPhotosWithCorrection ? try await preparePhotosIfNeeded() : []
+        return try await analysisService.correct(
+            FoodCorrectionRequest(
+                current: draft,
+                instruction: instruction,
+                history: history,
+                userFoodContext: userFoodContext.normalizedOptional,
+                mealPeriod: mealPeriod,
+                images: images
+            )
+        )
     }
 
     func save() async {
@@ -254,6 +282,7 @@ final class FoodScanViewModel {
             // 识别期间追加或删除了照片时，旧结果不再对应当前照片
             try Task.checkCancellation()
             result = analysis
+            correctionHistory = []
             phase = .needsReview
         } catch is CancellationError {
             phase = .awaitingContext

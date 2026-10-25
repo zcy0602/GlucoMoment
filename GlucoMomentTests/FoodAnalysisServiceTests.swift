@@ -387,6 +387,164 @@ struct FoodAnalysisServiceTests {
         )
     }
 
+    @Test("代理修正只发文字字段，解析改动并合并到当前记录")
+    func proxyCorrectionRequest() async throws {
+        let response = try JSONSerialization.data(withJSONObject: [
+            "requestId": "test",
+            "provider": "qwen",
+            "model": "qwen3.7-plus",
+            "promptVersion": "food-correction-v1",
+            "reply": "已新增卤蛋 1 个。",
+            "mealName": "",
+            "updatedItems": [],
+            "addedItems": [Self.itemPayload(name: "卤蛋")],
+            "removedRefs": [],
+            "followUpQuestions": []
+        ])
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [(200, response)])
+        let service = RemoteFoodAnalysisService(
+            endpoint: try #require(URL(string: "https://proxy.example.com/v1/food/analyze")),
+            installationIdentifier: "test-install",
+            session: session,
+            maximumRetryCount: 0
+        )
+        let current = Self.sampleResult
+
+        let outcome = try await service.correct(
+            FoodCorrectionRequest(
+                current: current,
+                instruction: "还有一个卤蛋",
+                history: [FoodCorrectionTurn(instruction: "鸡胸肉吃了一半", reply: "已改为一半。")],
+                userFoodContext: "没有酱汁",
+                mealPeriod: .lunch
+            )
+        )
+
+        let request = try #require(FoodAnalysisURLProtocol.capturedRequests.last)
+        let body = try #require(String(data: try request.bodyData(), encoding: .utf8))
+        #expect(request.url?.absoluteString == "https://proxy.example.com/v1/food/correct")
+        #expect(!body.contains("name=\"image\""))
+        #expect(body.contains("name=\"instruction\"\r\n\r\n还有一个卤蛋\r\n"))
+        #expect(body.contains("name=\"userFoodContext\"\r\n\r\n没有酱汁\r\n"))
+        #expect(body.contains("\"ref\":1"))
+        #expect(body.contains("鸡胸肉吃了一半"))
+        #expect(outcome.result.name == current.name)
+        #expect(outcome.result.items.map(\.name) == ["鸡胸肉", "卤蛋"])
+        #expect(outcome.result.followUpQuestions.isEmpty)
+        #expect(outcome.reply == "已新增卤蛋 1 个。")
+    }
+
+    @Test("直连修正不带照片时只发文字，使用修正提示词")
+    func directCorrectionIsTextOnly() async throws {
+        var updated = Self.itemPayload(name: "鸡胸肉")
+        updated["ref"] = 1
+        updated["estimatedGramsMin"] = 60
+        updated["estimatedGramsMax"] = 60
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "reply": "已把鸡胸肉改为一半，约 60 克。",
+            "updatedItems": [updated]
+        ])
+        let content = try #require(String(data: payload, encoding: .utf8))
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [(200, try makeChatResponse(content: content))])
+        let service = OpenAICompatibleFoodAnalysisService(
+            apiKey: "sk-test-abcdefghijklmnopqrstuvwxyz",
+            configuration: try #require(OpenAICompatibleConfiguration(
+                provider: .dashScope,
+                baseURL: "https://example.com/v1",
+                model: "qwen3.7-plus"
+            )),
+            session: session,
+            maximumRetryCount: 0
+        )
+        let current = Self.sampleResult
+
+        let outcome = try await service.correct(
+            FoodCorrectionRequest(
+                current: current,
+                instruction: "鸡胸肉只吃了一半",
+                history: [],
+                userFoodContext: nil,
+                mealPeriod: .dinner
+            )
+        )
+
+        let request = try #require(FoodAnalysisURLProtocol.capturedRequests.last)
+        let messages = try #require(try request.jsonBody()["messages"] as? [[String: Any]])
+        let prompt = try #require(messages.last?["content"] as? String)
+        #expect(messages.first?["content"] as? String == OpenAICompatibleFoodAnalysisService.correctionSystemPrompt)
+        #expect(prompt.contains("照片：未附照片"))
+        #expect(prompt.contains("<correction>\n鸡胸肉只吃了一半\n</correction>"))
+        #expect(prompt.contains("<previous_corrections>\n无\n</previous_corrections>"))
+        #expect(outcome.result.items[0].id == current.items[0].id)
+        #expect(outcome.result.items[0].estimatedGrams == 60)
+        #expect(outcome.changedItemIDs == [current.items[0].id])
+    }
+
+    @MainActor
+    @Test("修正接口地址由识别地址推出")
+    func correctionURLDerivation() throws {
+        let cases = [
+            ("https://gluco.echo-sit.com/v1/food/analyze", "https://gluco.echo-sit.com/v1/food/correct"),
+            ("https://example.com/proxy/v1/food/analyze", "https://example.com/proxy/v1/food/correct"),
+            ("https://example.com/custom", "https://example.com/v1/food/correct")
+        ]
+        for (analysis, correction) in cases {
+            let url = try #require(URL(string: analysis))
+            #expect(FoodAnalysisProxyEndpoint.correctionURL(from: url)?.absoluteString == correction)
+        }
+    }
+
+    private static let sampleResult = FoodRecognitionResult(
+        name: "鸡胸肉沙拉",
+        confidence: 0.8,
+        glucoseImpact: "低",
+        score: 86,
+        items: [
+            FoodRecognitionItem(
+                name: "鸡胸肉",
+                portionDescription: "一掌大小",
+                estimatedGrams: 120,
+                caloriesKcal: 198,
+                carbohydratesGrams: 0,
+                proteinGrams: 32,
+                fatGrams: 7,
+                fiberGrams: 0,
+                confidence: 0.9,
+                evidence: "照片",
+                foodCategory: .protein
+            )
+        ],
+        suggestions: [],
+        followUpQuestions: ["是否使用烹饪油？"],
+        uncertainties: [],
+        provider: "test",
+        model: "test",
+        promptVersion: "test"
+    )
+
+    private static func itemPayload(name: String) -> [String: Any] {
+        [
+            "name": name,
+            "portionDescription": "1 个",
+            "foodCategory": "肉蛋鱼豆",
+            "estimatedGramsMin": 45,
+            "estimatedGramsMax": 55,
+            "caloriesMin": 65,
+            "caloriesMax": 79,
+            "carbsMin": 0.5,
+            "carbsMax": 1.5,
+            "proteinMin": 6,
+            "proteinMax": 7,
+            "fatMin": 4.5,
+            "fatMax": 5,
+            "fiberMin": 0,
+            "fiberMax": 0,
+            "confidence": 0.85,
+            "evidence": "来自用户修正",
+            "uncertainties": []
+        ]
+    }
+
     private func makeChatResponse(content: String) throws -> Data {
         try JSONSerialization.data(withJSONObject: [
             "choices": [["message": ["content": content]]]

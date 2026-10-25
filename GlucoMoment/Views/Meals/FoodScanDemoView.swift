@@ -448,6 +448,14 @@ private struct FoodReviewSheet: View {
     @State private var selectedMealPeriod: MealPeriod
     @State private var eatenAt: Date
     @State private var userNote: String
+    @State private var correctionHistory: [FoodCorrectionTurn]
+    /// 每次修正前的草稿，与本次打开后新增的修正一一对应，用于撤销上一次修正
+    @State private var draftsBeforeCorrection: [FoodRecognitionResult] = []
+    @State private var correctedItemIDs: Set<UUID> = []
+    @State private var correctionText = ""
+    @State private var correctionTask: Task<Void, Never>?
+    @State private var correctionError: String?
+    @FocusState private var isCorrectionFocused: Bool
 
     init(viewModel: FoodScanViewModel) {
         self.viewModel = viewModel
@@ -455,6 +463,15 @@ private struct FoodReviewSheet: View {
         _selectedMealPeriod = State(initialValue: viewModel.selectedMealPeriod)
         _eatenAt = State(initialValue: viewModel.eatenAt)
         _userNote = State(initialValue: viewModel.userNote)
+        _correctionHistory = State(initialValue: viewModel.correctionHistory)
+    }
+
+    private var isCorrecting: Bool {
+        correctionTask != nil
+    }
+
+    private var trimmedCorrection: String {
+        correctionText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
@@ -480,6 +497,46 @@ private struct FoodReviewSheet: View {
                     )
                 }
 
+                Section {
+                    ForEach(Array(correctionHistory.enumerated()), id: \.offset) { _, turn in
+                        CorrectionTurnRow(turn: turn)
+                    }
+
+                    HStack(alignment: .bottom, spacing: 10) {
+                        TextField("比如：米饭只吃了半碗，还有一个卤蛋", text: $correctionText, axis: .vertical)
+                            .lineLimit(1...4)
+                            .focused($isCorrectionFocused)
+                            .disabled(isCorrecting)
+
+                        if isCorrecting {
+                            ProgressView()
+                                .frame(width: 28, height: 28)
+                        } else {
+                            Button("发送修正", systemImage: "arrow.up.circle.fill", action: sendCorrection)
+                                .labelStyle(.iconOnly)
+                                .font(.title2)
+                                .tint(Color.brandTeal)
+                                .buttonStyle(.borderless)
+                                .disabled(trimmedCorrection.isEmpty)
+                        }
+                    }
+
+                    if let correctionError {
+                        Label(correctionError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(Color.brandRose)
+                    }
+
+                    if !draftsBeforeCorrection.isEmpty, !isCorrecting {
+                        Button("撤销上一次修正", systemImage: "arrow.uturn.backward", action: undoLastCorrection)
+                            .font(.subheadline)
+                    }
+                } header: {
+                    Text("一句话修正")
+                } footer: {
+                    Text("说说哪里不对，AI 只改你提到的食物，稳糖分仍按公式计算。可以接着说，连续修正。")
+                }
+
                 Section("餐食信息") {
                     TextField("餐食名称", text: $draft.name)
                     Picker("餐次", selection: $selectedMealPeriod) {
@@ -495,9 +552,15 @@ private struct FoodReviewSheet: View {
 
                 Section {
                     ForEach($draft.items) { $item in
-                        FoodItemEditor(item: $item) {
+                        FoodItemEditor(
+                            item: $item,
+                            isRecentlyCorrected: correctedItemIDs.contains(item.id)
+                        ) {
                             draft.items.removeAll { $0.id == item.id }
                         }
+                        .listRowBackground(
+                            correctedItemIDs.contains(item.id) ? Color.brandTeal.opacity(0.1) : nil
+                        )
                     }
 
                     Button("添加食物", systemImage: "plus") {
@@ -522,6 +585,8 @@ private struct FoodReviewSheet: View {
                 } footer: {
                     Text("照片识别只能提供估算，请根据实际份量进行调整。")
                 }
+                // 修正返回前锁定手动编辑，避免返回的结果覆盖刚改的内容
+                .disabled(isCorrecting)
             }
             .navigationTitle("检查识别结果")
             .navigationBarTitleDisplayMode(.inline)
@@ -537,20 +602,94 @@ private struct FoodReviewSheet: View {
                         viewModel.selectedMealPeriod = selectedMealPeriod
                         viewModel.eatenAt = eatenAt
                         viewModel.userNote = userNote
+                        viewModel.correctionHistory = correctionHistory
                         dismiss()
                     }
                     .disabled(
                         draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || draft.items.isEmpty
+                            || isCorrecting
                     )
                 }
+            }
+            .onDisappear {
+                correctionTask?.cancel()
+            }
+        }
+    }
+
+    private func sendCorrection() {
+        let instruction = String(trimmedCorrection.prefix(FoodCorrectionLimit.maxInstructionLength))
+        guard !instruction.isEmpty, correctionTask == nil else { return }
+
+        correctionError = nil
+        isCorrectionFocused = false
+        let snapshot = draft
+        let history = correctionHistory
+        correctionTask = Task {
+            defer { correctionTask = nil }
+            do {
+                let outcome = try await viewModel.correct(
+                    snapshot,
+                    instruction: instruction,
+                    history: history,
+                    mealPeriod: selectedMealPeriod
+                )
+                try Task.checkCancellation()
+                withAnimation(.snappy) {
+                    draftsBeforeCorrection.append(snapshot)
+                    draft = outcome.result
+                    correctedItemIDs = outcome.changedItemIDs
+                    correctionHistory.append(
+                        FoodCorrectionTurn(instruction: instruction, reply: outcome.reply)
+                    )
+                }
+                correctionText = ""
+            } catch is CancellationError {
+                return
+            } catch {
+                correctionError = error.localizedDescription
+            }
+        }
+    }
+
+    /// 回到上一次修正之前的草稿；之后手动做的修改也会一并撤销
+    private func undoLastCorrection() {
+        guard let previous = draftsBeforeCorrection.popLast() else { return }
+
+        withAnimation(.snappy) {
+            draft = previous
+            correctedItemIDs = []
+            if !correctionHistory.isEmpty {
+                correctionHistory.removeLast()
             }
         }
     }
 }
 
+private struct CorrectionTurnRow: View {
+    let turn: FoodCorrectionTurn
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(turn.instruction)
+                .font(.subheadline)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.brandTeal.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            Label(turn.reply, systemImage: "sparkles")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct FoodItemEditor: View {
     @Binding var item: FoodRecognitionItem
+    var isRecentlyCorrected = false
     let onDelete: () -> Void
 
     var body: some View {
@@ -558,6 +697,9 @@ private struct FoodItemEditor: View {
             HStack {
                 TextField("食物名称", text: $item.name)
                     .font(.headline)
+                if isRecentlyCorrected {
+                    PillTag(title: "刚修正", tint: .brandTeal)
+                }
                 Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
                     .labelStyle(.iconOnly)
             }

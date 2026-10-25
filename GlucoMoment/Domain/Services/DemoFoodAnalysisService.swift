@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct DemoFoodAnalysisService: FoodAnalysisService {
+nonisolated struct DemoFoodAnalysisService: FoodAnalysisService {
     func analyze(
         images: [Data],
         userFoodContext: String?,
@@ -80,5 +80,78 @@ struct DemoFoodAnalysisService: FoodAnalysisService {
             model: "food-analysis-demo-v1",
             promptVersion: "food-analysis-v1"
         )
+    }
+
+    /// 演示模式按关键词模拟三种常见说法：某样没吃、只吃了一半、还有一个鸡蛋
+    func correct(_ request: FoodCorrectionRequest) async throws -> FoodCorrectionOutcome {
+        try await Task.sleep(for: .milliseconds(650))
+        try Task.checkCancellation()
+
+        let instruction = request.instruction
+        let items = request.current.items
+        let mentioned = items.indices.first { index in
+            Self.keywords(for: items[index].name).contains { instruction.contains($0) }
+        }
+        let removes = ["没吃", "没喝", "不是我", "去掉", "删掉"].contains { instruction.contains($0) }
+
+        var patch = FoodCorrectionPatch(reply: "")
+        var replies: [String] = []
+
+        if removes, let mentioned {
+            patch.removedRefs = [mentioned + 1]
+            replies.append("已删除“\(items[mentioned].name)”")
+        } else if instruction.contains("半"),
+                  let index = mentioned ?? items.indices.max(by: {
+                      items[$0].carbohydratesGrams < items[$1].carbohydratesGrams
+                  }) {
+            let halved = items[index].scaled(by: 0.5, note: instruction)
+            patch.updatedItems[index + 1] = halved
+            replies.append("已把“\(halved.name)”改为一半，约 \(Int(halved.estimatedGrams.rounded())) 克")
+        }
+
+        if !removes, instruction.contains("蛋"), !items.contains(where: { $0.name.contains("蛋") }) {
+            patch.addedItems.append(
+                FoodRecognitionItem(
+                    name: "卤蛋",
+                    portionDescription: "1 个",
+                    estimatedGrams: 50,
+                    caloriesKcal: 72,
+                    carbohydratesGrams: 1,
+                    proteinGrams: 6.5,
+                    fatGrams: 4.8,
+                    fiberGrams: 0,
+                    confidence: 0.9,
+                    evidence: "来自用户修正：\(instruction)",
+                    foodCategory: .protein
+                )
+            )
+            replies.append("已新增卤蛋 1 个")
+        }
+
+        patch.reply = replies.isEmpty
+            ? "演示模式只能模拟“只吃了一半”“鸡胸肉没吃”“还有一个卤蛋”这几种说法，换成其中一种试试。"
+            : replies.joined(separator: "，") + "。"
+        return try patch.apply(to: request.current)
+    }
+
+    /// 名称本身及按“与、和、、”拆开的部分，用来判断用户说的是哪一样
+    private static func keywords(for name: String) -> [String] {
+        let parts = name.split(whereSeparator: { "与和、及".contains($0) }).map(String.init)
+        return ([name] + parts).filter { $0.count >= 2 }
+    }
+}
+
+private nonisolated extension FoodRecognitionItem {
+    func scaled(by factor: Double, note: String) -> FoodRecognitionItem {
+        var item = self
+        item.estimatedGrams *= factor
+        item.caloriesKcal *= factor
+        item.carbohydratesGrams *= factor
+        item.proteinGrams *= factor
+        item.fatGrams *= factor
+        item.fiberGrams *= factor
+        item.portionDescription = "\(portionDescription)的一半"
+        item.evidence = "来自用户修正：\(note)"
+        return item
     }
 }

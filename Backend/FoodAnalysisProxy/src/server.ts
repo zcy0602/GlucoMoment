@@ -11,17 +11,25 @@ import {
   CoreConfig,
   ClientInputError,
   PROMPT_VERSION,
+  CORRECTION_PROMPT_VERSION,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_COUNT,
   MAX_TOTAL_IMAGE_BYTES,
+  MAX_CORRECTION_LENGTH,
   SYSTEM_PROMPT,
+  CORRECTION_SYSTEM_PROMPT,
   resolveProvider,
   buildUserPrompt,
   buildUserContent,
+  buildCorrectionUserPrompt,
   cleanText,
   parseModelJSON,
+  parseCorrectionRecord,
+  parseCorrectionHistory,
   validateAnalysis,
+  validateCorrection,
   uint8ArrayToBase64,
+  type UploadedImage,
 } from "./core";
 
 // ---- 配置 ----
@@ -74,10 +82,120 @@ const upload = multer({
   },
 }).array("image", MAX_IMAGE_COUNT);
 
+// 上游模型返回的错误，status 与 message 直接转给 App
+class UpstreamError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function uploadErrorResponse(err: unknown): { status: number; message: string } {
+  const status = err instanceof ClientInputError ? 415 : 422;
+  // multer 对“image 超过张数”和“字段名不是 image”都报 LIMIT_UNEXPECTED_FILE，用字段名区分
+  const multerError = err instanceof multer.MulterError ? err : undefined;
+  const tooManyImages =
+    multerError?.code === "LIMIT_FILE_COUNT" ||
+    (multerError?.code === "LIMIT_UNEXPECTED_FILE" &&
+      multerError.field === "image");
+  const unexpectedField =
+    multerError?.code === "LIMIT_UNEXPECTED_FILE" && !tooManyImages;
+  const message = tooManyImages
+    ? `一次最多上传 ${MAX_IMAGE_COUNT} 张照片。`
+    : unexpectedField
+      ? "图片字段名必须为 image。"
+      : err instanceof ClientInputError
+        ? err.message
+        : "图片无效或超过 8MB。";
+  return { status, message };
+}
+
+// 识别要求至少一张照片，修正可以不带照片
+function readImages(req: Request, required: boolean): UploadedImage[] {
+  const files = Array.isArray(req.files) ? req.files : [];
+  if ((required && files.length === 0) || files.some((file) => file.size === 0)) {
+    throw new ClientInputError("图片无效或超过 8MB。");
+  }
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > MAX_TOTAL_IMAGE_BYTES) {
+    throw new ClientInputError("照片总大小超过 20MB。");
+  }
+  return files.map((file) => ({
+    mimeType: file.mimetype,
+    base64: uint8ArrayToBase64(file.buffer),
+  }));
+}
+
+async function callModel(
+  systemPrompt: string,
+  userContent: unknown,
+  requestId: string,
+  maxTokens: number,
+): Promise<{ content: string; provider: string; model: string }> {
+  const provider = config.FOOD_AI_PROVIDER || "qwen";
+  const providerConfig = resolveProvider(provider as "qwen" | "glm", config);
+
+  const upstreamResponse = await fetch(providerConfig.baseURL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${providerConfig.apiKey}`,
+      "Content-Type": "application/json",
+      "X-Client-Request-Id": requestId,
+    },
+    body: JSON.stringify({
+      model: providerConfig.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      response_format: { type: "json_object" },
+      enable_thinking: false,
+      temperature: 0.1,
+      max_completion_tokens: maxTokens,
+    }),
+  });
+
+  if (!upstreamResponse.ok) {
+    throw upstreamResponse.status === 429
+      ? new UpstreamError(429, "模型服务繁忙，请稍后再试。")
+      : new UpstreamError(502, "模型服务暂时不可用。");
+  }
+
+  const upstream = (await upstreamResponse.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = upstream.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new UpstreamError(502, "模型没有返回可用结果。");
+  }
+  return { content, provider, model: providerConfig.model };
+}
+
+function sendError(
+  res: Response,
+  error: unknown,
+  requestId: string,
+  fallbackMessage: string,
+) {
+  if (error instanceof UpstreamError) {
+    res.status(error.status).json({ message: error.message, requestId });
+  } else if (error instanceof ClientInputError) {
+    res.status(422).json({ message: error.message, requestId });
+  } else {
+    res.status(500).json({ message: fallbackMessage, requestId });
+  }
+}
+
 // ---- 路由 ----
 
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", promptVersion: PROMPT_VERSION });
+  res.json({
+    status: "ok",
+    promptVersion: PROMPT_VERSION,
+    correctionPromptVersion: CORRECTION_PROMPT_VERSION,
+  });
 });
 
 app.post("/v1/food/analyze", (req: Request, res: Response) => {
@@ -85,117 +203,94 @@ app.post("/v1/food/analyze", (req: Request, res: Response) => {
     const requestId =
       (req.headers["x-request-id"] as string) || randomUUID();
 
+    if (err) {
+      const { status, message } = uploadErrorResponse(err);
+      res.status(status).json({ message, requestId });
+      return;
+    }
+
     try {
-      // multer 错误
-      if (err) {
-        const status = err instanceof ClientInputError ? 415 : 422;
-        // multer 对“image 超过张数”和“字段名不是 image”都报 LIMIT_UNEXPECTED_FILE，用字段名区分
-        const multerError = err instanceof multer.MulterError ? err : undefined;
-        const tooManyImages =
-          multerError?.code === "LIMIT_FILE_COUNT" ||
-          (multerError?.code === "LIMIT_UNEXPECTED_FILE" &&
-            multerError.field === "image");
-        const unexpectedField =
-          multerError?.code === "LIMIT_UNEXPECTED_FILE" && !tooManyImages;
-        const message = tooManyImages
-          ? `一次最多上传 ${MAX_IMAGE_COUNT} 张照片。`
-          : unexpectedField
-            ? "图片字段名必须为 image。"
-            : err instanceof ClientInputError
-            ? err.message
-            : "图片无效或超过 8MB。";
-        res.status(status).json({ message, requestId });
-        return;
-      }
-
-      const files = Array.isArray(req.files) ? req.files : [];
-      if (files.length === 0 || files.some((file) => file.size === 0)) {
-        res.status(422).json({ message: "图片无效或超过 8MB。", requestId });
-        return;
-      }
-      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-      if (totalBytes > MAX_TOTAL_IMAGE_BYTES) {
-        res.status(422).json({ message: "照片总大小超过 20MB。", requestId });
-        return;
-      }
-
+      const images = readImages(req, true);
       const context = cleanText(req.body?.userFoodContext, 500);
       const mealPeriod = cleanText(req.body?.mealPeriod, 20);
       const locale = cleanText(req.body?.locale, 30) || "zh-CN";
-      const provider = config.FOOD_AI_PROVIDER || "qwen";
-      const providerConfig = resolveProvider(
-        provider as "qwen" | "glm",
-        config,
+
+      const { content, provider, model } = await callModel(
+        SYSTEM_PROMPT,
+        buildUserContent(
+          images,
+          buildUserPrompt(context, mealPeriod, images.length, locale),
+        ),
+        requestId,
+        2500,
       );
-      const uploadedImages = files.map((file) => ({
-        mimeType: file.mimetype,
-        base64: uint8ArrayToBase64(file.buffer),
-      }));
-
-      const upstreamResponse = await fetch(providerConfig.baseURL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${providerConfig.apiKey}`,
-          "Content-Type": "application/json",
-          "X-Client-Request-Id": requestId,
-        },
-        body: JSON.stringify({
-          model: providerConfig.model,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: buildUserContent(
-                uploadedImages,
-                buildUserPrompt(context, mealPeriod, uploadedImages.length, locale),
-              ),
-            },
-          ],
-          response_format: { type: "json_object" },
-          enable_thinking: false,
-          temperature: 0.1,
-          max_completion_tokens: 2500,
-        }),
-      });
-
-      if (!upstreamResponse.ok) {
-        const status =
-          upstreamResponse.status === 429 ? 429 : 502;
-        const message =
-          upstreamResponse.status === 429
-            ? "模型服务繁忙，请稍后再试。"
-            : "模型服务暂时不可用。";
-        res.status(status).json({ message, requestId });
-        return;
-      }
-
-      const upstream = (await upstreamResponse.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = upstream.choices?.[0]?.message?.content;
-      if (!content) {
-        res
-          .status(502)
-          .json({ message: "模型没有返回可用结果。", requestId });
-        return;
-      }
 
       const analysis = validateAnalysis(parseModelJSON(content));
       res.json({
         requestId,
         schemaVersion: 1,
         provider,
-        model: providerConfig.model,
+        model,
         promptVersion: PROMPT_VERSION,
         ...analysis,
       });
     } catch (error) {
-      const message =
-        error instanceof ClientInputError
-          ? error.message
-          : "食物识别服务暂时不可用。";
-      const status = error instanceof ClientInputError ? 422 : 500;
+      sendError(res, error, requestId, "食物识别服务暂时不可用。");
+    }
+  });
+});
+
+// 一句话修正：App 带上当前记录、之前的修正和本次说明，照片可选；只返回改动部分
+app.post("/v1/food/correct", (req: Request, res: Response) => {
+  upload(req, res, async (err) => {
+    const requestId =
+      (req.headers["x-request-id"] as string) || randomUUID();
+
+    if (err) {
+      const { status, message } = uploadErrorResponse(err);
       res.status(status).json({ message, requestId });
+      return;
+    }
+
+    try {
+      const instruction = cleanText(req.body?.instruction, MAX_CORRECTION_LENGTH);
+      if (!instruction) {
+        throw new ClientInputError("请说明需要修正的内容。");
+      }
+      const record = parseCorrectionRecord(req.body?.currentResult);
+      const history = parseCorrectionHistory(req.body?.history);
+      const images = readImages(req, false);
+      const prompt = buildCorrectionUserPrompt({
+        context: cleanText(req.body?.userFoodContext, 500),
+        mealPeriod: cleanText(req.body?.mealPeriod, 20),
+        imageCount: images.length,
+        locale: cleanText(req.body?.locale, 30) || "zh-CN",
+        record,
+        history,
+        instruction,
+      });
+
+      const { content, provider, model } = await callModel(
+        CORRECTION_SYSTEM_PROMPT,
+        images.length > 0 ? buildUserContent(images, prompt) : prompt,
+        requestId,
+        1500,
+      );
+
+      const correction = validateCorrection(
+        parseModelJSON(content),
+        record.items.length,
+      );
+      res.json({
+        requestId,
+        schemaVersion: 1,
+        provider,
+        model,
+        promptVersion: CORRECTION_PROMPT_VERSION,
+        ...correction,
+      });
+    } catch (error) {
+      sendError(res, error, requestId, "修正服务暂时不可用。");
     }
   });
 });

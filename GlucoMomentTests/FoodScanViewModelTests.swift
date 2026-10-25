@@ -94,6 +94,32 @@ struct FoodScanViewModelTests {
         #expect(saved == (await service.receivedImages))
     }
 
+    @Test("修正带上描述和复核页的餐次，第一版不发照片；换照片后修正记录清空")
+    func correctionRequestAndReset() async throws {
+        let service = RecordingFoodAnalysisService(result: Self.result)
+        let viewModel = FoodScanViewModel(
+            analysisService: service,
+            mealRepository: RecordingMealRepository(),
+            photoStore: InMemoryMealPhotoStore()
+        )
+        viewModel.selectPhotos([try Self.jpeg(.red)])
+        viewModel.userFoodContext = "两人合餐"
+        let history = [FoodCorrectionTurn(instruction: "米饭吃了一半", reply: "已修改。")]
+
+        _ = try await viewModel.correct(Self.result, instruction: "还有一个卤蛋", history: history, mealPeriod: .dinner)
+
+        let request = try #require(await service.receivedCorrections.last)
+        #expect(request.instruction == "还有一个卤蛋")
+        #expect(request.history == history)
+        #expect(request.userFoodContext == "两人合餐")
+        #expect(request.mealPeriod == .dinner)
+        #expect(request.images.isEmpty == !FoodScanViewModel.sendsPhotosWithCorrection)
+
+        viewModel.correctionHistory = history
+        viewModel.selectPhotos([try Self.jpeg(.blue)])
+        #expect(viewModel.correctionHistory.isEmpty)
+    }
+
     private func makeViewModel() -> FoodScanViewModel {
         FoodScanViewModel(
             analysisService: RecordingFoodAnalysisService(result: Self.result),
@@ -143,6 +169,13 @@ private actor RecordingFoodAnalysisService: FoodAnalysisService {
         receivedImages = images
         return result
     }
+
+    func correct(_ request: FoodCorrectionRequest) async throws -> FoodCorrectionOutcome {
+        receivedCorrections.append(request)
+        return FoodCorrectionOutcome(result: request.current, reply: "已修改。", changedItemIDs: [])
+    }
+
+    private(set) var receivedCorrections: [FoodCorrectionRequest] = []
 }
 
 @MainActor
