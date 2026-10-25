@@ -7,7 +7,7 @@ import Foundation
 
 struct DemoFoodAnalysisService: FoodAnalysisService {
     func analyze(
-        imageData: Data,
+        images: [Data],
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {

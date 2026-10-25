@@ -24,7 +24,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
     }
 
     func analyze(
-        imageData: Data,
+        images: [Data],
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
@@ -35,7 +35,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
             do {
                 return try await performRequest(
                     requestID: requestID,
-                    imageData: imageData,
+                    images: images,
                     userFoodContext: userFoodContext,
                     mealPeriod: mealPeriod
                 )
@@ -60,7 +60,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
 
     private func performRequest(
         requestID: UUID,
-        imageData: Data,
+        images: [Data],
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
@@ -81,7 +81,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
                 "mealPeriod": mealPeriod?.rawValue ?? "",
                 "userFoodContext": userFoodContext ?? ""
             ],
-            imageData: imageData
+            images: images
         )
 
         let (data, response) = try await session.data(for: request)
@@ -113,7 +113,7 @@ private nonisolated enum MultipartFormData {
     static func makeBody(
         boundary: String,
         fields: [String: String],
-        imageData: Data
+        images: [Data]
     ) -> Data {
         var body = Data()
 
@@ -123,11 +123,15 @@ private nonisolated enum MultipartFormData {
             body.appendUTF8("\(fields[key] ?? "")\r\n")
         }
 
-        body.appendUTF8("--\(boundary)\r\n")
-        body.appendUTF8("Content-Disposition: form-data; name=\"image\"; filename=\"meal.jpg\"\r\n")
-        body.appendUTF8("Content-Type: image/jpeg\r\n\r\n")
-        body.append(imageData)
-        body.appendUTF8("\r\n--\(boundary)--\r\n")
+        // 多张照片重复使用 image 字段，代理按出现顺序读取
+        for (index, imageData) in images.enumerated() {
+            body.appendUTF8("--\(boundary)\r\n")
+            body.appendUTF8("Content-Disposition: form-data; name=\"image\"; filename=\"meal-\(index + 1).jpg\"\r\n")
+            body.appendUTF8("Content-Type: image/jpeg\r\n\r\n")
+            body.append(imageData)
+            body.appendUTF8("\r\n")
+        }
+        body.appendUTF8("--\(boundary)--\r\n")
         return body
     }
 }

@@ -56,7 +56,7 @@ struct FoodAnalysisServiceTests {
             maximumRetryCount: 0
         )
         let result = try await service.analyze(
-            imageData: Data([0xFF, 0xD8, 0xFF]),
+            images: [Data([0xFF, 0xD8, 0xFF])],
             userFoodContext: "一掌鸡胸肉，无额外酱汁",
             mealPeriod: .lunch
         )
@@ -85,6 +85,83 @@ struct FoodAnalysisServiceTests {
         #expect(result.provider == "qwen-direct")
     }
 
+    @Test("多张照片按顺序放进同一条消息，文字说明在最后并注明张数")
+    func multipleImagesInOneMessage() async throws {
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [(200, try makeChatResponse())])
+        let service = OpenAICompatibleFoodAnalysisService(
+            apiKey: "sk-test-abcdefghijklmnopqrstuvwxyz",
+            configuration: try #require(OpenAICompatibleConfiguration(
+                provider: .dashScope,
+                baseURL: "https://example.com/v1",
+                model: "qwen3.7-plus"
+            )),
+            session: session,
+            maximumRetryCount: 0
+        )
+        let images = [Data([0x01]), Data([0x02]), Data([0x03])]
+        _ = try await service.analyze(images: images, userFoodContext: nil, mealPeriod: .dinner)
+
+        let request = try #require(FoodAnalysisURLProtocol.capturedRequests.last)
+        let messages = try #require(try request.jsonBody()["messages"] as? [[String: Any]])
+        let parts = try #require(messages.last?["content"] as? [[String: Any]])
+        let imageURLs = parts.dropLast().compactMap { ($0["image_url"] as? [String: String])?["url"] }
+        let prompt = try #require(parts.last?["text"] as? String)
+
+        #expect(parts.count == 4)
+        #expect(imageURLs == images.map { "data:image/jpeg;base64,\($0.base64EncodedString())" })
+        #expect(prompt.contains("共 3 张"))
+    }
+
+    @Test("照片为空或超过上限时不发请求")
+    func rejectsInvalidImageCount() async throws {
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [])
+        let service = OpenAICompatibleFoodAnalysisService(
+            apiKey: "sk-test-abcdefghijklmnopqrstuvwxyz",
+            configuration: try #require(OpenAICompatibleConfiguration(
+                provider: .dashScope,
+                baseURL: "https://example.com/v1",
+                model: "qwen3.7-plus"
+            )),
+            session: session,
+            maximumRetryCount: 0
+        )
+        let tooMany = Array(repeating: Data([0x01]), count: FoodAnalysisImageLimit.maxImageCount + 1)
+
+        await #expect(throws: FoodAnalysisError.self) {
+            try await service.analyze(images: [], userFoodContext: nil, mealPeriod: nil)
+        }
+        await #expect(throws: FoodAnalysisError.self) {
+            try await service.analyze(images: tooMany, userFoodContext: nil, mealPeriod: nil)
+        }
+        #expect(FoodAnalysisURLProtocol.capturedRequests.isEmpty)
+    }
+
+    @Test("代理请求为每张照片重复 image 字段")
+    func proxyMultipartRepeatsImageField() async throws {
+        let rejection = try JSONSerialization.data(withJSONObject: ["message": "测试"])
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [(422, rejection)])
+        let service = RemoteFoodAnalysisService(
+            endpoint: try #require(URL(string: "https://proxy.example.com/v1/food/analyze")),
+            installationIdentifier: "test-install",
+            session: session,
+            maximumRetryCount: 0
+        )
+
+        await #expect(throws: FoodAnalysisError.self) {
+            try await service.analyze(
+                images: [Data([0x01]), Data([0x02])],
+                userFoodContext: "两人合餐",
+                mealPeriod: .lunch
+            )
+        }
+
+        let request = try #require(FoodAnalysisURLProtocol.capturedRequests.last)
+        let body = try #require(String(data: try request.bodyData(), encoding: .isoLatin1))
+        #expect(body.components(separatedBy: "name=\"image\"").count - 1 == 2)
+        #expect(body.contains("filename=\"meal-1.jpg\""))
+        #expect(body.contains("filename=\"meal-2.jpg\""))
+    }
+
     @Test("其他服务商只发送通用字段，不带百炼专有参数")
     func genericProviderRequestBody() async throws {
         let session = FoodAnalysisURLProtocol.makeSession(responses: [(200, try makeChatResponse())])
@@ -99,7 +176,7 @@ struct FoodAnalysisServiceTests {
             maximumRetryCount: 0
         )
         let result = try await service.analyze(
-            imageData: Data([0xFF, 0xD8, 0xFF]),
+            images: [Data([0xFF, 0xD8, 0xFF])],
             userFoodContext: nil,
             mealPeriod: nil
         )
@@ -139,7 +216,7 @@ struct FoodAnalysisServiceTests {
             maximumRetryCount: 0
         )
         let result = try await service.analyze(
-            imageData: Data([0xFF, 0xD8, 0xFF]),
+            images: [Data([0xFF, 0xD8, 0xFF])],
             userFoodContext: nil,
             mealPeriod: nil
         )
@@ -385,9 +462,12 @@ private final class FoodAnalysisURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 private extension URLRequest {
+    func bodyData() throws -> Data {
+        try #require(httpBody ?? httpBodyStream?.readAllData())
+    }
+
     func jsonBody() throws -> [String: Any] {
-        let data = try #require(httpBody ?? httpBodyStream?.readAllData())
-        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        try #require(JSONSerialization.jsonObject(with: bodyData()) as? [String: Any])
     }
 }
 

@@ -3,9 +3,11 @@ import {
   ClientInputError,
   PROMPT_VERSION,
   MAX_IMAGE_BYTES,
+  MAX_IMAGE_COUNT,
   SYSTEM_PROMPT,
   resolveProvider,
   buildUserPrompt,
+  buildUserContent,
   cleanText,
   parseModelJSON,
   validateAnalysis,
@@ -47,16 +49,29 @@ export default {
 
     try {
       const form = await request.formData();
-      const image = form.get("image");
-      if (
-        !(image instanceof File) ||
-        image.size === 0 ||
-        image.size > MAX_IMAGE_BYTES
-      ) {
-        return json({ message: "图片无效或超过 8MB。", requestId }, 422);
+      const images = form.getAll("image");
+      if (images.length > MAX_IMAGE_COUNT) {
+        return json(
+          { message: `一次最多上传 ${MAX_IMAGE_COUNT} 张照片。`, requestId },
+          422,
+        );
       }
-      if (!image.type.startsWith("image/")) {
-        return json({ message: "仅支持图片文件。", requestId }, 415);
+      const files: File[] = [];
+      for (const image of images) {
+        if (
+          !(image instanceof File) ||
+          image.size === 0 ||
+          image.size > MAX_IMAGE_BYTES
+        ) {
+          return json({ message: "图片无效或超过 8MB。", requestId }, 422);
+        }
+        if (!image.type.startsWith("image/")) {
+          return json({ message: "仅支持图片文件。", requestId }, 415);
+        }
+        files.push(image);
+      }
+      if (files.length === 0) {
+        return json({ message: "图片无效或超过 8MB。", requestId }, 422);
       }
 
       const context = cleanText(form.get("userFoodContext"), 500);
@@ -67,8 +82,11 @@ export default {
         provider as "qwen" | "glm",
         env as CoreConfig,
       );
-      const imageBase64 = uint8ArrayToBase64(
-        new Uint8Array(await image.arrayBuffer()),
+      const uploadedImages = await Promise.all(
+        files.map(async (file) => ({
+          mimeType: file.type,
+          base64: uint8ArrayToBase64(new Uint8Array(await file.arrayBuffer())),
+        })),
       );
 
       const upstreamResponse = await fetch(providerConfig.baseURL, {
@@ -84,18 +102,10 @@ export default {
             { role: "system", content: SYSTEM_PROMPT },
             {
               role: "user",
-              content: [
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:${image.type};base64,${imageBase64}`,
-                  },
-                },
-                {
-                  type: "text",
-                  text: buildUserPrompt(context, mealPeriod, locale),
-                },
-              ],
+              content: buildUserContent(
+                uploadedImages,
+                buildUserPrompt(context, mealPeriod, uploadedImages.length, locale),
+              ),
             },
           ],
           response_format: { type: "json_object" },

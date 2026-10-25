@@ -6,11 +6,17 @@
 import Foundation
 
 nonisolated protocol FoodAnalysisService: Sendable {
+    /// `images` 为同一餐按拍摄顺序排列的 1～`maxImageCount` 张照片，在一次请求中交给模型综合估算
     func analyze(
-        imageData: Data,
+        images: [Data],
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult
+}
+
+nonisolated enum FoodAnalysisImageLimit {
+    /// 须与代理 `core.ts` 的 `MAX_IMAGE_COUNT` 保持一致
+    static let maxImageCount = 4
 }
 
 nonisolated enum FoodAnalysisError: LocalizedError, Sendable {

@@ -17,10 +17,16 @@ final class FoodScanViewModel {
     private let mealRepository: any MealRepository
     private let photoStore: any MealPhotoStoring
     private var analysisTask: Task<Void, Never>?
-    private var preparedPhotoData: Data?
+    /// 与 `selectedPhotos` 一一对应的压缩结果；照片增删后清空，下次识别或保存时重新生成
+    private var preparedPhotos: [Data] = []
+    /// 每次增删照片时递增，用来判断压缩结果是否仍对应当前照片
+    private var photoRevision = 0
+
+    let maxPhotoCount = FoodAnalysisImageLimit.maxImageCount
 
     var phase: FoodScanPhase = .idle
-    var selectedPhotoData: Data?
+    /// 同一餐按添加顺序排列的原始照片，最多 `maxPhotoCount` 张
+    var selectedPhotos: [Data] = []
     var userFoodContext = ""
     var result: FoodRecognitionResult?
     var selectedMealPeriod: MealPeriod
@@ -73,14 +79,54 @@ final class FoodScanViewModel {
         phase == .preparingImage || phase == .analyzing || phase == .saving
     }
 
-    func selectPhoto(_ data: Data, referenceDate: Date = .now) {
+    var remainingPhotoSlots: Int {
+        max(0, maxPhotoCount - selectedPhotos.count)
+    }
+
+    /// 开始记录新的一餐：替换全部照片并清空描述和结果
+    func selectPhotos(_ photos: [Data], referenceDate: Date = .now) {
+        guard !photos.isEmpty else { return }
+
         cancelAnalysis()
-        selectedPhotoData = data
-        preparedPhotoData = nil
+        selectedPhotos = Array(photos.prefix(maxPhotoCount))
+        photoRevision += 1
+        preparedPhotos = []
         selectedMealPeriod = MealPeriod.inferred(for: referenceDate)
         eatenAt = referenceDate
         userFoodContext = ""
         userNote = ""
+        result = nil
+        phase = .awaitingContext
+    }
+
+    /// 为同一餐追加照片，保留已填写的描述；已有的识别结果作废，需要重新识别
+    func addPhotos(_ photos: [Data]) {
+        let accepted = photos.prefix(remainingPhotoSlots)
+        guard !accepted.isEmpty else { return }
+
+        cancelAnalysis()
+        selectedPhotos.append(contentsOf: accepted)
+        photoRevision += 1
+        invalidateAnalysis()
+    }
+
+    func removePhoto(at index: Int) {
+        guard selectedPhotos.indices.contains(index) else { return }
+
+        cancelAnalysis()
+        selectedPhotos.remove(at: index)
+        photoRevision += 1
+        if selectedPhotos.isEmpty {
+            preparedPhotos = []
+            result = nil
+            phase = .idle
+        } else {
+            invalidateAnalysis()
+        }
+    }
+
+    private func invalidateAnalysis() {
+        preparedPhotos = []
         result = nil
         phase = .awaitingContext
     }
@@ -103,7 +149,7 @@ final class FoodScanViewModel {
 
     func save() async {
         guard let result else { return }
-        guard let photoData = preparedPhotoData ?? selectedPhotoData else {
+        guard !selectedPhotos.isEmpty else {
             phase = .failed("找不到待保存的餐食照片。")
             return
         }
@@ -113,15 +159,8 @@ final class FoodScanViewModel {
         var savedFilename: String?
 
         do {
-            let preparedData: Data
-            if let preparedPhotoData {
-                preparedData = preparedPhotoData
-            } else {
-                preparedData = try await FoodImageProcessor.prepareForAnalysis(photoData)
-                self.preparedPhotoData = preparedData
-            }
-
-            savedFilename = try await photoStore.saveJPEG(preparedData, mealID: mealID)
+            let photos = try await preparePhotosIfNeeded()
+            savedFilename = try await photoStore.saveJPEGs(photos, mealID: mealID)
             let items = result.items.map { item in
                 MealFoodItem(
                     id: item.id,
@@ -179,24 +218,42 @@ final class FoodScanViewModel {
         }
     }
 
+    private func preparePhotosIfNeeded() async throws -> [Data] {
+        if preparedPhotos.count == selectedPhotos.count {
+            return preparedPhotos
+        }
+
+        let revision = photoRevision
+        var prepared: [Data] = []
+        for photo in selectedPhotos {
+            prepared.append(try await FoodImageProcessor.prepareForAnalysis(photo))
+            try Task.checkCancellation()
+        }
+        // 压缩期间照片被增删时不写回缓存，避免与当前照片错位
+        if revision == photoRevision {
+            preparedPhotos = prepared
+        }
+        return prepared
+    }
+
     private func analyze() async {
-        guard let selectedPhotoData else {
+        guard !selectedPhotos.isEmpty else {
             phase = .failed("请先拍照或从图库选择照片。")
             return
         }
 
         do {
             phase = .preparingImage
-            let prepared = try await FoodImageProcessor.prepareForAnalysis(selectedPhotoData)
-            try Task.checkCancellation()
-            preparedPhotoData = prepared
+            let prepared = try await preparePhotosIfNeeded()
             phase = .analyzing
-            result = try await analysisService.analyze(
-                imageData: prepared,
+            let analysis = try await analysisService.analyze(
+                images: prepared,
                 userFoodContext: userFoodContext.normalizedOptional,
                 mealPeriod: selectedMealPeriod
             )
+            // 识别期间追加或删除了照片时，旧结果不再对应当前照片
             try Task.checkCancellation()
+            result = analysis
             phase = .needsReview
         } catch is CancellationError {
             phase = .awaitingContext

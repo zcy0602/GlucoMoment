@@ -20,7 +20,10 @@ import AppKit
 struct FoodScanDemoView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: FoodScanViewModel
-    @State private var selectedPhotoItem: PhotosPickerItem?
+    /// 新的一餐：替换全部照片
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    /// 在补充信息页为同一餐追加照片
+    @State private var appendedPhotoItems: [PhotosPickerItem] = []
     @State private var presentedSheet: FoodScanSheet?
     @State private var photoSelectionIssue: PhotoSelectionIssue?
     @State private var isLoadingPhoto = false
@@ -47,52 +50,83 @@ struct FoodScanDemoView: View {
 
     var body: some View {
         DemoScreen(title: viewModel.title) {
-            if let selectedPhotoData = viewModel.selectedPhotoData {
+            if !viewModel.selectedPhotos.isEmpty {
                 CameraPreviewCard(
-                    photoData: selectedPhotoData,
+                    photos: viewModel.selectedPhotos,
                     title: viewModel.result?.name ?? "待识别餐食",
                     stateText: viewModel.scanStateText
                 )
                 PhotoActionRow(
-                    selectedPhotoItem: $selectedPhotoItem,
-                    onCameraTap: openCamera
+                    selectedPhotoItems: $selectedPhotoItems,
+                    maxSelectionCount: viewModel.maxPhotoCount,
+                    onCameraTap: { openCamera(appending: false) }
                 )
 
                 scanContent
             } else {
                 PhotoSourceCard(
-                    selectedPhotoItem: $selectedPhotoItem,
+                    selectedPhotoItems: $selectedPhotoItems,
+                    maxSelectionCount: viewModel.maxPhotoCount,
                     isLoading: isLoadingPhoto,
-                    onCameraTap: openCamera
+                    onCameraTap: { openCamera(appending: false) }
                 )
             }
         }
         .sheet(item: $presentedSheet) { destination in
             switch destination {
-            case .camera:
+            case .camera, .cameraAppend:
 #if os(iOS)
-                CameraPicker { image in
-                    guard let data = image.jpegData(compressionQuality: 0.9) else {
-                        photoSelectionIssue = PhotoSelectionIssue(message: "拍摄的照片无法读取，请重试。")
-                        return
-                    }
+                let appending = destination == .cameraAppend
+                CameraPicker(
+                    onImageSelected: { image in
+                        guard let data = image.jpegData(compressionQuality: 0.9) else {
+                            photoSelectionIssue = PhotoSelectionIssue(message: "拍摄的照片无法读取，请重试。")
+                            return
+                        }
 
-                    applySelectedPhoto(data)
-                }
+                        if appending {
+                            viewModel.addPhotos([data])
+                            presentedSheet = .context
+                        } else {
+                            applySelectedPhotos([data])
+                        }
+                    },
+                    onCancel: appending ? { presentedSheet = .context } : nil
+                )
 #else
                 EmptyView()
 #endif
             case .context:
-                FoodContextSheet(viewModel: viewModel)
+                FoodContextSheet(
+                    viewModel: viewModel,
+                    appendedPhotoItems: $appendedPhotoItems,
+                    isLoadingPhoto: isLoadingPhoto,
+                    onTakePhoto: { openCamera(appending: true) }
+                )
             case .review:
                 FoodReviewSheet(viewModel: viewModel)
             }
         }
-        .onChange(of: selectedPhotoItem) { _, newItem in
-            guard let newItem else { return }
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
 
             Task {
-                await loadPhoto(from: newItem)
+                if let photos = await loadPhotos(from: items) {
+                    applySelectedPhotos(photos)
+                }
+                selectedPhotoItems = []
+            }
+        }
+        .onChange(of: appendedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+
+            Task {
+                if let photos = await loadPhotos(from: items) {
+                    withAnimation(.snappy) {
+                        viewModel.addPhotos(photos)
+                    }
+                }
+                appendedPhotoItems = []
             }
         }
         .alert(item: $photoSelectionIssue) { issue in
@@ -193,7 +227,7 @@ struct FoodScanDemoView: View {
         }
     }
 
-    private func openCamera() {
+    private func openCamera(appending: Bool) {
 #if os(iOS)
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             photoSelectionIssue = PhotoSelectionIssue(
@@ -202,36 +236,38 @@ struct FoodScanDemoView: View {
             return
         }
 
-        presentedSheet = .camera
+        presentedSheet = appending ? .cameraAppend : .camera
 #else
         photoSelectionIssue = PhotoSelectionIssue(message: "当前平台不支持在 App 内拍照。")
 #endif
     }
 
-    private func loadPhoto(from item: PhotosPickerItem) async {
+    /// 按选择顺序读取照片；任一张失败时整体放弃，避免一餐只录入部分照片
+    private func loadPhotos(from items: [PhotosPickerItem]) async -> [Data]? {
         isLoadingPhoto = true
-        defer {
-            isLoadingPhoto = false
-            selectedPhotoItem = nil
-        }
+        defer { isLoadingPhoto = false }
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  !data.isEmpty else {
-                throw PhotoLoadingError.invalidData
+            var photos: [Data] = []
+            for item in items {
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      !data.isEmpty else {
+                    throw PhotoLoadingError.invalidData
+                }
+                photos.append(data)
             }
-
-            applySelectedPhoto(data)
+            return photos
         } catch {
             photoSelectionIssue = PhotoSelectionIssue(
                 message: "图库中的照片加载失败，请换一张照片或重试。"
             )
+            return nil
         }
     }
 
-    private func applySelectedPhoto(_ data: Data) {
+    private func applySelectedPhotos(_ photos: [Data]) {
         withAnimation(.snappy) {
-            viewModel.selectPhoto(data)
+            viewModel.selectPhotos(photos)
         }
         presentedSheet = .context
     }
@@ -239,6 +275,7 @@ struct FoodScanDemoView: View {
 
 private enum FoodScanSheet: String, Identifiable {
     case camera
+    case cameraAppend
     case context
     case review
 
@@ -257,6 +294,9 @@ private enum PhotoLoadingError: Error {
 private struct FoodContextSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: FoodScanViewModel
+    @Binding var appendedPhotoItems: [PhotosPickerItem]
+    let isLoadingPhoto: Bool
+    let onTakePhoto: () -> Void
 
     private let hintColumns = [
         GridItem(
@@ -271,6 +311,46 @@ private struct FoodContextSheet: View {
 
         NavigationStack {
             Form {
+                Section {
+                    ContextPhotoStrip(
+                        photos: viewModel.selectedPhotos,
+                        onRemove: { index in
+                            withAnimation(.snappy) {
+                                viewModel.removePhoto(at: index)
+                            }
+                        }
+                    )
+
+                    if isLoadingPhoto {
+                        ProgressView("正在读取照片…")
+                            .frame(maxWidth: .infinity)
+                    } else if viewModel.remainingPhotoSlots > 0 {
+                        HStack(spacing: 12) {
+#if os(iOS)
+                            Button(action: onTakePhoto) {
+                                Label("拍一张", systemImage: "camera")
+                                    .frame(maxWidth: .infinity)
+                            }
+#endif
+                            PhotosPicker(
+                                selection: $appendedPhotoItems,
+                                maxSelectionCount: viewModel.remainingPhotoSlots,
+                                selectionBehavior: .ordered,
+                                matching: .images
+                            ) {
+                                Label("从图库添加", systemImage: "photo.badge.plus")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                } header: {
+                    Text("照片 \(viewModel.selectedPhotos.count)/\(viewModel.maxPhotoCount)")
+                } footer: {
+                    Text("同一餐的其他菜或另一个角度可以继续添加，会一起识别。")
+                }
+
                 Section {
                     Text("可以补充照片里不容易看出的份量、烹饪方式、酱汁或配料。留空也可以继续识别。")
                         .font(.subheadline)
@@ -324,7 +404,11 @@ private struct FoodContextSheet: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Menu("完成") {
-                        Section("确认开始识别？") {
+                        Section(
+                            viewModel.selectedPhotos.count > 1
+                                ? "确认用 \(viewModel.selectedPhotos.count) 张照片识别？"
+                                : "确认开始识别？"
+                        ) {
                             Button("开始识别", systemImage: "sparkles") {
                                 startAnalysis(skipDescription: false)
                             }
@@ -558,7 +642,9 @@ private extension FoodRecognitionResult {
 }
 
 private struct PhotoSourceCard: View {
-    @Binding var selectedPhotoItem: PhotosPickerItem?
+    @Binding var selectedPhotoItems: [PhotosPickerItem]
+
+    let maxSelectionCount: Int
 
     let isLoading: Bool
     let onCameraTap: () -> Void
@@ -574,7 +660,7 @@ private struct PhotoSourceCard: View {
             VStack(spacing: 8) {
                 Text("拍摄你的餐食")
                     .font(.title3.weight(.semibold))
-                Text("可以直接拍照，或从图库选择已有照片。上传前可以补充份量、做法和配料。")
+                Text("可以直接拍照，或从图库选择最多 \(maxSelectionCount) 张同一餐的照片。上传前可以补充份量、做法和配料。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -594,7 +680,12 @@ private struct PhotoSourceCard: View {
                     .controlSize(.large)
 #endif
 
-                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    PhotosPicker(
+                        selection: $selectedPhotoItems,
+                        maxSelectionCount: maxSelectionCount,
+                        selectionBehavior: .ordered,
+                        matching: .images
+                    ) {
                         Label("从图库选择", systemImage: "photo.on.rectangle")
                             .frame(maxWidth: .infinity)
                     }
@@ -686,7 +777,9 @@ private struct InlineIssueCard: View {
 }
 
 private struct PhotoActionRow: View {
-    @Binding var selectedPhotoItem: PhotosPickerItem?
+    @Binding var selectedPhotoItems: [PhotosPickerItem]
+
+    let maxSelectionCount: Int
 
     let onCameraTap: () -> Void
 
@@ -700,7 +793,12 @@ private struct PhotoActionRow: View {
             .buttonStyle(.bordered)
 #endif
 
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+            PhotosPicker(
+                selection: $selectedPhotoItems,
+                maxSelectionCount: maxSelectionCount,
+                selectionBehavior: .ordered,
+                matching: .images
+            ) {
                 Label("更换照片", systemImage: "photo.badge.plus")
                     .frame(maxWidth: .infinity)
             }
@@ -710,18 +808,62 @@ private struct PhotoActionRow: View {
     }
 }
 
+/// 补充信息页顶部的照片缩略图；至少保留一张，所以只有多张时才能删除
+private struct ContextPhotoStrip: View {
+    let photos: [Data]
+    let onRemove: (Int) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(photos.enumerated()), id: \.offset) { index, data in
+                    SelectedPhotoImage(data: data)
+                        .frame(width: 76, height: 76)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(alignment: .bottomLeading) {
+                            Text("\(index + 1)")
+                                .font(.caption2.weight(.bold).monospacedDigit())
+                                .foregroundStyle(.white)
+                                .frame(width: 18, height: 18)
+                                .background(.black.opacity(0.5), in: Circle())
+                                .padding(5)
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if photos.count > 1 {
+                                Button("删除第 \(index + 1) 张", systemImage: "xmark.circle.fill") {
+                                    onRemove(index)
+                                }
+                                .labelStyle(.iconOnly)
+                                .font(.title3)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.55))
+                                .buttonStyle(.plain)
+                                .padding(3)
+                            }
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("第 \(index + 1) 张照片")
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
 private struct CameraPreviewCard: View {
-    let photoData: Data
+    let photos: [Data]
     let title: String
     let stateText: String
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                SelectedPhotoImage(data: photoData)
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .clipped()
-                    .accessibilityLabel("已选择的餐食照片")
+                MealPhotoPager(photos: photos) { data in
+                    SelectedPhotoImage(data: data)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                        .accessibilityLabel("已选择的餐食照片")
+                }
 
                 LinearGradient(
                     colors: [
@@ -732,10 +874,12 @@ private struct CameraPreviewCard: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
+                .allowsHitTesting(false)
 
                 ScanFrame()
                     .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                     .padding(15)
+                    .allowsHitTesting(false)
 
                 VStack {
                     Spacer()
@@ -761,6 +905,8 @@ private struct CameraPreviewCard: View {
                     }
                     .padding(24)
                 }
+                // 让左右滑动切换照片的手势穿过文字和取景框
+                .allowsHitTesting(false)
             }
         }
         .frame(height: 280)
@@ -813,6 +959,7 @@ private struct CameraPicker: UIViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
 
     let onImageSelected: (UIImage) -> Void
+    var onCancel: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -838,6 +985,7 @@ private struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onCancel?()
             parent.dismiss()
         }
 
@@ -1098,6 +1246,7 @@ private func makeFoodScanPreviewViewModel(
     dependencies: AppDependencies,
     phase: FoodScanPhase,
     includesPhoto: Bool = true,
+    photoCount: Int = 1,
     includesResult: Bool = false,
     userFoodContext: String = ""
 ) -> FoodScanViewModel {
@@ -1108,7 +1257,7 @@ private func makeFoodScanPreviewViewModel(
     )
 
     if includesPhoto {
-        viewModel.selectedPhotoData = foodScanPreviewPhotoData()
+        viewModel.selectedPhotos = Array(repeating: foodScanPreviewPhotoData(), count: photoCount)
     }
     if includesResult {
         viewModel.result = foodScanPreviewResult()
@@ -1207,7 +1356,8 @@ private func foodScanPreviewResult() -> FoodRecognitionResult {
         FoodScanDemoView(
             previewViewModel: makeFoodScanPreviewViewModel(
                 dependencies: dependencies,
-                phase: .awaitingContext
+                phase: .awaitingContext,
+                photoCount: 3
             )
         )
     }
@@ -1220,8 +1370,12 @@ private func foodScanPreviewResult() -> FoodRecognitionResult {
         viewModel: makeFoodScanPreviewViewModel(
             dependencies: dependencies,
             phase: .awaitingContext,
+            photoCount: 3,
             userFoodContext: "鸡肉清炒，沙拉酱只放了一半。"
-        )
+        ),
+        appendedPhotoItems: .constant([]),
+        isLoadingPhoto: false,
+        onTakePhoto: {}
     )
     .modelContainer(dependencies.modelContainer)
 }

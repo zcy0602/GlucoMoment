@@ -12,9 +12,11 @@ import {
   ClientInputError,
   PROMPT_VERSION,
   MAX_IMAGE_BYTES,
+  MAX_IMAGE_COUNT,
   SYSTEM_PROMPT,
   resolveProvider,
   buildUserPrompt,
+  buildUserContent,
   cleanText,
   parseModelJSON,
   validateAnalysis,
@@ -58,10 +60,10 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// multipart 解析：只接受 image 字段，最大 8MB
+// multipart 解析：只接受 image 字段，最多 MAX_IMAGE_COUNT 张，每张最大 8MB
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
+  limits: { fileSize: MAX_IMAGE_BYTES, files: MAX_IMAGE_COUNT },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
       cb(new ClientInputError("仅支持图片文件。"));
@@ -69,7 +71,7 @@ const upload = multer({
     }
     cb(null, true);
   },
-}).single("image");
+}).array("image", MAX_IMAGE_COUNT);
 
 // ---- 路由 ----
 
@@ -86,13 +88,21 @@ app.post("/v1/food/analyze", (req: Request, res: Response) => {
       // multer 错误
       if (err) {
         const status = err instanceof ClientInputError ? 415 : 422;
-        res
-          .status(status)
-          .json({ message: err.message || "图片无效或超过 8MB。", requestId });
+        const tooManyImages =
+          err instanceof multer.MulterError &&
+          (err.code === "LIMIT_FILE_COUNT" ||
+            err.code === "LIMIT_UNEXPECTED_FILE");
+        const message = tooManyImages
+          ? `一次最多上传 ${MAX_IMAGE_COUNT} 张照片。`
+          : err instanceof ClientInputError
+            ? err.message
+            : "图片无效或超过 8MB。";
+        res.status(status).json({ message, requestId });
         return;
       }
 
-      if (!req.file) {
+      const files = Array.isArray(req.files) ? req.files : [];
+      if (files.length === 0 || files.some((file) => file.size === 0)) {
         res.status(422).json({ message: "图片无效或超过 8MB。", requestId });
         return;
       }
@@ -105,7 +115,10 @@ app.post("/v1/food/analyze", (req: Request, res: Response) => {
         provider as "qwen" | "glm",
         config,
       );
-      const imageBase64 = uint8ArrayToBase64(req.file.buffer);
+      const uploadedImages = files.map((file) => ({
+        mimeType: file.mimetype,
+        base64: uint8ArrayToBase64(file.buffer),
+      }));
 
       const upstreamResponse = await fetch(providerConfig.baseURL, {
         method: "POST",
@@ -120,18 +133,10 @@ app.post("/v1/food/analyze", (req: Request, res: Response) => {
             { role: "system", content: SYSTEM_PROMPT },
             {
               role: "user",
-              content: [
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:${req.file.mimetype};base64,${imageBase64}`,
-                  },
-                },
-                {
-                  type: "text",
-                  text: buildUserPrompt(context, mealPeriod, locale),
-                },
-              ],
+              content: buildUserContent(
+                uploadedImages,
+                buildUserPrompt(context, mealPeriod, uploadedImages.length, locale),
+              ),
             },
           ],
           response_format: { type: "json_object" },

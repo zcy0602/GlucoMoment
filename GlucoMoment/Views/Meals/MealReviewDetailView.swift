@@ -10,7 +10,7 @@ struct MealReviewDetailView: View {
   let meal: MealRecord
   let photoStore: any MealPhotoStoring
 
-  @State private var photoData: Data?
+  @State private var photos: [Data] = []
 
   var body: some View {
     DemoScreen(title: "餐食详情") {
@@ -71,44 +71,55 @@ struct MealReviewDetailView: View {
     .accessibilityIdentifier("meal-review-detail")
     .task(id: meal.photoFilename) {
       guard let filename = meal.photoFilename else {
-        photoData = nil
+        photos = []
         return
       }
-      photoData = await photoStore.jpegData(filename: filename)
+      photos = await photoStore.allJPEGData(primaryFilename: filename)
+        .filter { UIImage(data: $0) != nil }
     }
   }
 
   @ViewBuilder
   private var mealPhoto: some View {
-    if let photoData, let image = UIImage(data: photoData) {
-      Image(uiImage: image)
-        .resizable()
-        .scaledToFill()
-        .frame(height: 240)
+    if !photos.isEmpty {
+      MealPhotoPager(photos: photos) { data in
+        Color.clear
+          .overlay {
+            if let image = UIImage(data: data) {
+              Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+            }
+          }
+          .clipped()
+      }
+      .frame(height: 240)
+      .clipShape(RoundedRectangle(cornerRadius: 22))
+      .overlay(alignment: .bottomLeading) {
+        LinearGradient(
+          colors: [.clear, .black.opacity(0.72)],
+          startPoint: .center,
+          endPoint: .bottom
+        )
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(alignment: .bottomLeading) {
-          LinearGradient(
-            colors: [.clear, .black.opacity(0.72)],
-            startPoint: .center,
-            endPoint: .bottom
-          )
-          .clipShape(RoundedRectangle(cornerRadius: 22))
-          .overlay(alignment: .bottomLeading) {
-            VStack(alignment: .leading, spacing: 4) {
-              Text(meal.title)
-                .font(.headline)
-              if let confidence = meal.analysisConfidence {
-                Text(
-                  "Review 后已保存 · 识别置信度 \(confidence.formatted(.percent.precision(.fractionLength(0))))"
-                )
-                .font(.caption)
-              }
+          VStack(alignment: .leading, spacing: 4) {
+            Text(meal.title)
+              .font(.headline)
+            if let confidence = meal.analysisConfidence {
+              Text(
+                "Review 后已保存 · 识别置信度 \(confidence.formatted(.percent.precision(.fractionLength(0))))"
+              )
+              .font(.caption)
             }
-            .foregroundStyle(.white)
-            .padding(16)
           }
+          .foregroundStyle(.white)
+          .padding(16)
         }
-        .accessibilityLabel("已保存的餐食照片")
+        // 让左右滑动切换照片的手势穿过渐变和文字
+        .allowsHitTesting(false)
+      }
+      .accessibilityLabel(photos.count > 1 ? "已保存的 \(photos.count) 张餐食照片" : "已保存的餐食照片")
     }
   }
 

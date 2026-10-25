@@ -108,6 +108,26 @@ extension PersistenceRepositoryTests {
       #expect(await store.jpegData(filename: filename) == original)
     }
 
+    @Test("一餐的多张照片按顺序保存，删除主文件时一并删除", arguments: [true, false])
+    func storesMultipleMealPhotos(usesLocalStore: Bool) async throws {
+      let store: any MealPhotoStoring = usesLocalStore ? LocalMealPhotoStore() : InMemoryMealPhotoStore()
+      let photos = [Data([0x01]), Data([0x02]), Data([0x03])]
+      let mealID = UUID()
+      let filename = try await store.saveJPEGs(photos, mealID: mealID)
+
+      #expect(filename == "\(mealID.uuidString.lowercased()).jpg")
+      #expect(await store.jpegData(filename: filename) == photos[0])
+      #expect(await store.allJPEGData(primaryFilename: filename) == photos)
+
+      await store.delete(filename: filename)
+      #expect(await store.allJPEGData(primaryFilename: filename).isEmpty)
+      #expect(
+        await store.jpegData(
+          filename: MealPhotoFilename.additional(primaryFilename: filename, position: 2)
+        ) == nil
+      )
+    }
+
     private func makeRepository() throws -> (ModelContainer, SwiftDataMealRepository) {
       let container = PersistenceRepositoryTests.container
       try PersistenceRepositoryTests.resetStore()

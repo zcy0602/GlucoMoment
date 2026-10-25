@@ -21,7 +21,7 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
     }
 
     func analyze(
-        imageData: Data,
+        images: [Data],
         userFoodContext: String?,
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
@@ -29,7 +29,7 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
         switch configuration.mode {
         case .demo:
             return try await DemoFoodAnalysisService().analyze(
-                imageData: imageData,
+                images: images,
                 userFoodContext: userFoodContext,
                 mealPeriod: mealPeriod
             )
@@ -45,7 +45,7 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
                 apiKey: apiKey,
                 configuration: apiConfiguration
             ).analyze(
-                imageData: imageData,
+                images: images,
                 userFoodContext: userFoodContext,
                 mealPeriod: mealPeriod
             )
@@ -57,7 +57,7 @@ actor RoutingFoodAnalysisService: FoodAnalysisService {
                 endpoint: endpoint,
                 installationIdentifier: installationIdentifier
             ).analyze(
-                imageData: imageData,
+                images: images,
                 userFoodContext: userFoodContext,
                 mealPeriod: mealPeriod
             )
