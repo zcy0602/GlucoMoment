@@ -68,6 +68,7 @@ nonisolated struct FoodAnalysisProxyResponseDTO: Decodable, Sendable {
 nonisolated struct FoodAnalysisItemDTO: Decodable, Sendable {
     let name: String
     let portionDescription: String
+    let foodCategory: String?
     let estimatedGramsMin: Double
     let estimatedGramsMax: Double
     let caloriesMin: Double
@@ -107,7 +108,8 @@ nonisolated struct FoodAnalysisItemDTO: Decodable, Sendable {
                 fiberGrams: midpoint(fiberMin, fiberMax),
                 confidence: confidence.clamped(to: 0...1),
                 evidence: evidence,
-                uncertainties: Array(uncertainties.prefix(5))
+                uncertainties: Array(uncertainties.prefix(5)),
+                foodCategory: FoodCategory(modelValue: foodCategory)
             )
         }
     }

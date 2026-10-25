@@ -78,6 +78,7 @@ nonisolated struct FoodRecognitionItem: Identifiable, Hashable, Sendable {
     var confidence: Double
     var evidence: String
     var uncertainties: [String]
+    var foodCategory: FoodCategory?
 
     init(
         id: UUID = UUID(),
@@ -91,7 +92,8 @@ nonisolated struct FoodRecognitionItem: Identifiable, Hashable, Sendable {
         fiberGrams: Double,
         confidence: Double,
         evidence: String,
-        uncertainties: [String] = []
+        uncertainties: [String] = [],
+        foodCategory: FoodCategory? = nil
     ) {
         self.id = id
         self.name = name
@@ -105,5 +107,6 @@ nonisolated struct FoodRecognitionItem: Identifiable, Hashable, Sendable {
         self.confidence = confidence
         self.evidence = evidence
         self.uncertainties = uncertainties
+        self.foodCategory = foodCategory
     }
 }
