@@ -202,7 +202,8 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
     }
 
     /// 通用服务商只发送协议中最基础的字段；各家对 temperature、token 上限等参数的
-    /// 名称和取值约束不一致，发送了反而容易被拒绝。百炼保留原有的调优参数。
+    /// 名称和取值约束不一致，发送了反而容易被拒绝。百炼和 DeepSeek 默认开启思考，
+    /// 识别一餐要多等很久，因此按各自文档关闭思考并带上调优参数。
     private func requestBody(
         messages: [[String: Any]],
         maxTokens: Int,
@@ -215,10 +216,18 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
         if jsonMode {
             body["response_format"] = ["type": "json_object"]
         }
-        if configuration.provider.usesDashScopeExtensions {
+        switch configuration.provider {
+        case .dashScope:
             body["enable_thinking"] = false
             body["temperature"] = jsonMode ? 0.1 : 0
             body["max_completion_tokens"] = maxTokens
+        case .deepSeek:
+            // temperature 只在非思考模式下生效
+            body["thinking"] = ["type": "disabled"]
+            body["temperature"] = jsonMode ? 0.1 : 0
+            body["max_tokens"] = maxTokens
+        default:
+            break
         }
         return body
     }

@@ -39,6 +39,7 @@ nonisolated enum FoodAnalysisAPIProvider: String, CaseIterable, Identifiable, Se
     case zhipu
     case volcengineArk
     case moonshot
+    case deepSeek
     case custom
 
     var id: String { rawValue }
@@ -51,6 +52,7 @@ nonisolated enum FoodAnalysisAPIProvider: String, CaseIterable, Identifiable, Se
         case .zhipu: "智谱 BigModel"
         case .volcengineArk: "火山方舟"
         case .moonshot: "Kimi（月之暗面）"
+        case .deepSeek: "DeepSeek"
         case .custom: "自定义"
         }
     }
@@ -63,6 +65,7 @@ nonisolated enum FoodAnalysisAPIProvider: String, CaseIterable, Identifiable, Se
         case .zhipu: "https://open.bigmodel.cn/api/paas/v4"
         case .volcengineArk: "https://ark.cn-beijing.volces.com/api/v3"
         case .moonshot: "https://api.moonshot.cn/v1"
+        case .deepSeek: "https://api.deepseek.com"
         case .custom: ""
         }
     }
@@ -76,13 +79,11 @@ nonisolated enum FoodAnalysisAPIProvider: String, CaseIterable, Identifiable, Se
         case .zhipu: "glm-4.6v"
         case .volcengineArk: "doubao-seed-2-1-pro-260628"
         case .moonshot: "kimi-k3"
+        // 目前只有 Flash 支持图片输入，v4-pro 不支持
+        case .deepSeek: "deepseek-flash"
         case .custom: ""
         }
     }
-
-    /// 百炼支持并需要关闭思考等专有参数；其他服务商对 temperature 等取值约束不一，
-    /// 只发送协议中最通用的字段，避免被拒绝。
-    var usesDashScopeExtensions: Bool { self == .dashScope }
 
     /// 写入识别结果的服务标识；百炼沿用旧版的 qwen-direct 以保持历史记录一致
     var resultIdentifier: String {

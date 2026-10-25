@@ -196,6 +196,37 @@ struct FoodAnalysisServiceTests {
         #expect(result.model == "gemini-test")
     }
 
+    @Test("DeepSeek 使用预设地址和视觉模型，并关闭思考模式")
+    func deepSeekRequestBody() async throws {
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [(200, try makeChatResponse())])
+        let provider = FoodAnalysisAPIProvider.deepSeek
+        let service = OpenAICompatibleFoodAnalysisService(
+            apiKey: "sk-test-abcdefghijklmnopqrstuvwxyz",
+            configuration: try #require(OpenAICompatibleConfiguration(
+                provider: provider,
+                baseURL: provider.defaultBaseURL,
+                model: provider.defaultModel
+            )),
+            session: session,
+            maximumRetryCount: 0
+        )
+        let result = try await service.analyze(
+            images: [Data([0xFF, 0xD8, 0xFF])],
+            userFoodContext: nil,
+            mealPeriod: nil
+        )
+
+        let request = try #require(FoodAnalysisURLProtocol.capturedRequests.last)
+        let body = try request.jsonBody()
+        #expect(request.url?.absoluteString == "https://api.deepseek.com/chat/completions")
+        #expect(body["model"] as? String == "deepseek-flash")
+        #expect((body["thinking"] as? [String: String])?["type"] == "disabled")
+        #expect(body["temperature"] as? Double == 0.1)
+        #expect(body["max_tokens"] as? Int == 2500)
+        #expect(body["enable_thinking"] == nil)
+        #expect(result.provider == "deepSeek-direct")
+    }
+
     @Test("服务商拒绝 JSON 模式时去掉 response_format 重试一次")
     func jsonModeFallback() async throws {
         let rejection = try JSONSerialization.data(withJSONObject: [
