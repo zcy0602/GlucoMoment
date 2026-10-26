@@ -63,10 +63,14 @@ app.use((_req, res, next) => {
   next();
 });
 
-// IP 限流：10 次/分钟
+// 线上由同机的 Nginx 反向代理转发（见 README）。只信任来自本机回环地址的 X-Forwarded-For，
+// 这样限流按用户的真实 IP 计算；直接访问时仍按连接地址计算，外部伪造的请求头不起作用
+app.set("trust proxy", "loopback");
+
+// IP 限流：每个 IP 30 次/分钟。会场多台手机可能共用一个出口 IP，一次完整演示约 5 次请求
 const limiter = rateLimit({
   windowMs: 60_000,
-  max: 10,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "请求过于频繁，请稍后再试。" },

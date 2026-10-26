@@ -60,7 +60,7 @@ node dist/server.js
 
 ```powershell
 curl http://localhost:8787/health
-# → {"status":"ok","promptVersion":"food-analysis-v2"}
+# → {"status":"ok","promptVersion":"food-analysis-v2","correctionPromptVersion":"food-correction-v1","reviewPromptVersion":"meal-review-v1"}
 ```
 
 ### 4. 注册 Windows Service（开机自启 + 崩溃重启）
@@ -100,7 +100,8 @@ server {
     ssl_certificate     /path/to/fullchain.pem;
     ssl_certificate_key /path/to/privkey.pem;
 
-    location /v1/food/analyze {
+    # 识别、一句话修正和近期复盘都在 /v1/ 下
+    location /v1/ {
         proxy_pass http://127.0.0.1:8787;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         client_max_body_size 25m;
@@ -108,9 +109,12 @@ server {
 
     location /health {
         proxy_pass http://127.0.0.1:8787;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```
+
+代理按用户的真实 IP 限流（每个 IP 每分钟 30 次）。前提有两条：一是 Nginx 和 Node 在同一台机器上，`proxy_pass` 指向 `127.0.0.1`；二是 Nginx 要转发 `X-Forwarded-For`。代码里只信任来自本机回环地址的这个请求头（`trust proxy` 设为 `loopback`）。如果 Nginx 不在同一台机器上，所有请求会共用一个限流额度。
 
 ### 6. 更新 App 设置
 
