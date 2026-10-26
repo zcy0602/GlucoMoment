@@ -51,7 +51,9 @@ struct MealReviewDetailView: View {
           icon: "sparkles",
           rows: meal.suggestions,
           rowIcon: "checkmark.circle.fill",
-          tint: Color.brandLeaf
+          tint: Color.brandLeaf,
+          // 条目都有类别时，保存的是按规则生成的建议
+          footnote: meal.stableScore == nil ? nil : DietGuideline.sourceCitation
         )
       }
 
@@ -351,6 +353,7 @@ private struct MealDetailListCard: View {
   let rows: [String]
   let rowIcon: String
   let tint: Color
+  var footnote: String? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -359,6 +362,11 @@ private struct MealDetailListCard: View {
       ForEach(rows, id: \.self) { row in
         Label(row, systemImage: rowIcon)
           .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+      if let footnote {
+        Text(footnote)
+          .font(.caption)
           .foregroundStyle(.secondary)
       }
     }

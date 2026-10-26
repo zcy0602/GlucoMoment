@@ -10,13 +10,15 @@ import Observation
 @Observable
 final class CarePlanViewModel {
     let title = "个人方案"
-    let weeklyGoal = "把范围内时间提升到 88%，减少午餐后波动。"
+    /// 只写行为目标，不写血糖指标数值；个人的控制目标由医生确定
+    let weeklyGoal = "每天记录三餐，并在餐后测一次血糖，积累自己的饮食与血糖对照。"
     let progress = 0.72
     let notes = [
-        "优先稳定早餐和午餐后的峰值。",
-        "连续 3 天晚餐后低于 140 时，可保持当前晚餐结构。",
+        "主食定量，全谷物和杂豆占主食的 1/3 以上。",
+        "每周至少 5 天餐后活动，运动前后留意血糖。",
         "任何用药调整都应咨询医生，本 App 只做记录和提醒。"
     ]
+    let notesCitation = DietGuideline.citation(for: [.wholeGrainShare, .activityAfterMeals])
 
     var reminderEnabled = true
     var tasks: [CareTask]

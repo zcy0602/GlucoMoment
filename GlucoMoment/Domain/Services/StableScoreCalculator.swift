@@ -17,6 +17,17 @@ nonisolated struct StableScoreBreakdown: Hashable, Sendable {
     var proteinBonus: Double
     var wholeGrainBonus: Double
     var addedSugarPenalty: Double
+    // 以下为计算中间量（克），供 `MealSuggestionEngine` 判断用
+    /// 主食（精制谷物、全谷杂豆、薯类）的可利用碳水
+    var stapleCarbs: Double
+    var vegetableGrams: Double
+    /// 添加糖类食物的可利用碳水
+    var addedSugarCarbs: Double
+
+    /// 主食可利用碳水达到全谷物规则的适用下限，视为这一餐有主食
+    var hasStaple: Bool {
+        stapleCarbs >= StableScoreCalculator.wholeGrainMinimumStapleCarbs
+    }
 }
 
 /// 稳糖分公式 v0.1：整餐 GL 定基础分，膳食指南条目定加减分。
@@ -91,7 +102,10 @@ nonisolated enum StableScoreCalculator {
             vegetableBonus: vegetableBonus,
             proteinBonus: proteinBonus,
             wholeGrainBonus: wholeGrainBonus,
-            addedSugarPenalty: addedSugarPenalty
+            addedSugarPenalty: addedSugarPenalty,
+            stapleCarbs: stapleCarbs,
+            vegetableGrams: vegetableGrams,
+            addedSugarCarbs: addedSugarCarbs
         )
     }
 
@@ -127,5 +141,28 @@ nonisolated extension FoodCategory {
         case .nutFat: 15            // 花生 14
         case .other: 55             // 低 / 中 GI 分界
         }
+    }
+}
+
+nonisolated extension MealRecord {
+    /// 按已保存的条目重新计算稳糖分构成；任一条目缺少类别（旧记录、健康 App 导入）时为 nil
+    var stableScore: StableScoreBreakdown? {
+        StableScoreCalculator.calculate(items: items.map { item in
+            FoodRecognitionItem(
+                id: item.id,
+                name: item.name,
+                portionDescription: item.portionDescription,
+                estimatedGrams: item.estimatedGrams,
+                caloriesKcal: item.caloriesKcal,
+                carbohydratesGrams: item.carbohydratesGrams,
+                proteinGrams: item.proteinGrams,
+                fatGrams: item.fatGrams,
+                fiberGrams: item.fiberGrams,
+                confidence: item.confidence ?? 0,
+                evidence: item.evidence ?? "",
+                uncertainties: item.uncertainties,
+                foodCategory: item.foodCategory
+            )
+        })
     }
 }

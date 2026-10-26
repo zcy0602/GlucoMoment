@@ -32,8 +32,8 @@ struct CarePlanDemoView: View {
                 }
             }
 
-            SectionHeader("医生/营养师 Demo 备注")
-            PlanNotesCard(notes: viewModel.notes)
+            SectionHeader("方案备注")
+            PlanNotesCard(notes: viewModel.notes, citation: viewModel.notesCitation)
         }
     }
 }
@@ -105,15 +105,20 @@ private struct TaskRow: View {
 
 private struct PlanNotesCard: View {
     let notes: [String]
+    let citation: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(notes.enumerated()), id: \.offset) { index, note in
                 Label(note, systemImage: noteIcon(for: index))
             }
+
+            Text(citation)
+                .font(.caption)
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -121,9 +126,9 @@ private struct PlanNotesCard: View {
     private func noteIcon(for index: Int) -> String {
         switch index {
         case 0:
-            "stethoscope"
+            "fork.knife"
         case 1:
-            "calendar.badge.checkmark"
+            "figure.walk"
         default:
             "cross.case"
         }

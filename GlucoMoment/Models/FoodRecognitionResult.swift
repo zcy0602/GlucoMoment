@@ -34,6 +34,21 @@ nonisolated struct FoodRecognitionResult: Hashable, Sendable {
         stableScore?.glucoseImpact ?? glucoseImpact
     }
 
+    /// 按规则生成的稳糖建议；条目缺少食物类别时为 nil
+    var ruleSuggestions: [MealSuggestion]? {
+        stableScore.map(MealSuggestionEngine.suggestions(for:))
+    }
+
+    /// 界面显示和保存都使用这组建议；无法按规则生成时沿用模型给出的 `suggestions`
+    var effectiveSuggestions: [String] {
+        ruleSuggestions?.map(\.text) ?? suggestions
+    }
+
+    /// 规则建议的指南出处；沿用模型建议时为 nil
+    var suggestionCitation: String? {
+        ruleSuggestions.map { DietGuideline.citation(for: $0.map(\.guideline)) }
+    }
+
     var caloriesKcal: Double {
         items.reduce(0) { $0 + $1.caloriesKcal }
     }

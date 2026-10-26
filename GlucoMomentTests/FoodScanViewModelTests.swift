@@ -96,6 +96,31 @@ struct FoodScanViewModelTests {
         #expect(saved == (await service.receivedImages))
     }
 
+    @Test("保存时写入食物类别和按规则生成的建议")
+    func savesCategoriesAndRuleSuggestions() async throws {
+        let repository = RecordingMealRepository()
+        let viewModel = FoodScanViewModel(
+            analysisService: RecordingFoodAnalysisService(result: Self.result),
+            mealRepository: repository,
+            photoStore: InMemoryMealPhotoStore()
+        )
+        viewModel.selectPhotos([try Self.jpeg(.red)])
+        let categorized = SuggestionFixtures.result(
+            items: SuggestionFixtures.balancedItems,
+            suggestions: ["模型建议"]
+        )
+        viewModel.result = categorized
+        viewModel.phase = .needsReview
+
+        await viewModel.save()
+
+        #expect(viewModel.phase == .saved)
+        let meal = try #require(repository.savedMeals.first)
+        #expect(meal.items.map(\.foodCategory) == [.protein, .wholeGrainLegume, .vegetable])
+        #expect(meal.suggestions == categorized.effectiveSuggestions)
+        #expect(!meal.suggestions.contains("模型建议"))
+    }
+
     @Test("修正带上描述和复核页的餐次，第一版不发照片；换照片后修正记录清空")
     func correctionRequestAndReset() async throws {
         let service = RecordingFoodAnalysisService(result: Self.result)

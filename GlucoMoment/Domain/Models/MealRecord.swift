@@ -126,6 +126,8 @@ nonisolated struct MealFoodItem: Identifiable, Hashable, Sendable {
     var evidence: String?
     var uncertainties: [String]
     var isUserConfirmed: Bool
+    /// 识别时的食物类别；旧记录和健康 App 导入的餐没有类别
+    var foodCategory: FoodCategory?
 
     init(
         id: UUID = UUID(),
@@ -140,7 +142,8 @@ nonisolated struct MealFoodItem: Identifiable, Hashable, Sendable {
         confidence: Double? = nil,
         evidence: String? = nil,
         uncertainties: [String] = [],
-        isUserConfirmed: Bool = true
+        isUserConfirmed: Bool = true,
+        foodCategory: FoodCategory? = nil
     ) {
         self.id = id
         self.name = name
@@ -155,5 +158,6 @@ nonisolated struct MealFoodItem: Identifiable, Hashable, Sendable {
         self.evidence = evidence
         self.uncertainties = uncertainties
         self.isUserConfirmed = isUserConfirmed
+        self.foodCategory = foodCategory
     }
 }

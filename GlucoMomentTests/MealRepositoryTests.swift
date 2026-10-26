@@ -84,6 +84,37 @@ extension PersistenceRepositoryTests {
       #expect(stored.items.first?.portionDescription == "三分之一碗")
     }
 
+    @Test("食物类别随快照保存；旧快照没有类别时读出为 nil，其余依据保留")
+    func persistsFoodCategory() throws {
+      let (container, repository) = try makeRepository()
+      let eatenAt = Date(timeIntervalSince1970: 1_700_000_000)
+      var meal = makeMeal(eatenAt: eatenAt, period: .lunch)
+      meal.items[0].foodCategory = .wholeGrainLegume
+      meal.items[1].foodCategory = .protein
+      try repository.save(meal)
+
+      let interval = DateInterval(
+        start: eatenAt.addingTimeInterval(-1),
+        end: eatenAt.addingTimeInterval(1)
+      )
+      let stored = try #require(try repository.meals(in: interval, period: nil).first)
+      #expect(stored.items.map(\.foodCategory) == [.wholeGrainLegume, .protein])
+      #expect(stored.stableScore != nil)
+
+      // 模拟加入类别字段之前保存的快照
+      let snapshot = try #require(
+        try container.mainContext.fetch(FetchDescriptor<MealAnalysisSnapshotEntity>()).first)
+      let firstID = stored.items[0].id.uuidString
+      snapshot.itemDetailsData = Data(
+        #"[{"id":"\#(firstID)","evidence":"用户描述和照片","uncertainties":[]}]"#.utf8)
+      try container.mainContext.save()
+
+      let legacy = try #require(try repository.meals(in: interval, period: nil).first)
+      #expect(legacy.items.allSatisfy { $0.foodCategory == nil })
+      #expect(legacy.items.first?.evidence == "用户描述和照片")
+      #expect(legacy.stableScore == nil)
+    }
+
     @Test("删除餐食时级联删除食物项目")
     func cascadesDeleteToFoodItems() throws {
       let (container, repository) = try makeRepository()

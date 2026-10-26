@@ -18,6 +18,8 @@ final class MealLogViewModel {
     var currentMealPeriod: MealPeriod
     var meals: [MealRecord] = []
     var loadErrorMessage: String?
+    /// 最近一次加载的时间；晚于它的记录不参与下一餐提示
+    private(set) var referenceDate: Date
 
     init(
         repository: any MealRepository,
@@ -26,6 +28,7 @@ final class MealLogViewModel {
     ) {
         self.repository = repository
         self.guidances = guidances ?? DemoDataProvider.mealGuidances
+        self.referenceDate = referenceDate
         currentMealPeriod = MealPeriod.inferred(for: referenceDate)
     }
 
@@ -35,20 +38,33 @@ final class MealLogViewModel {
             title: "\(currentMealPeriod.rawValue)建议",
             text: "",
             tags: [],
-            meals: []
+            guidelines: []
+        )
+    }
+
+    /// 根据今天已记录的餐给出的下一餐提示；没有触发规则时为 nil，显示当前餐次的通用建议
+    var nextMealSuggestion: MealSuggestion? {
+        MealSuggestionEngine.nextMealSuggestion(
+            basedOn: meals.filter { $0.eatenAt <= referenceDate }
         )
     }
 
     var suggestionTitle: String {
-        currentGuidance.title
+        nextMealSuggestion == nil ? currentGuidance.title : "下一餐提示"
     }
 
     var suggestionText: String {
-        currentGuidance.text
+        nextMealSuggestion?.text ?? currentGuidance.text
     }
 
     var suggestionTags: [String] {
-        currentGuidance.tags
+        nextMealSuggestion.map { [$0.guideline.title] } ?? currentGuidance.tags
+    }
+
+    var suggestionCitation: String {
+        DietGuideline.citation(
+            for: nextMealSuggestion.map { [$0.guideline] } ?? currentGuidance.guidelines
+        )
     }
 
     var mealSections: [MealPeriodSection] {
@@ -60,6 +76,7 @@ final class MealLogViewModel {
     }
 
     func reload(referenceDate: Date = .now) {
+        self.referenceDate = referenceDate
         currentMealPeriod = MealPeriod.inferred(for: referenceDate)
 
         guard let interval = Calendar.current.dateInterval(of: .day, for: referenceDate) else {

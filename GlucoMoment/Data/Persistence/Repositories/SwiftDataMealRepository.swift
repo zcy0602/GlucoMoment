@@ -191,7 +191,8 @@ final class SwiftDataMealRepository: MealRepository {
       confidence: entity.confidence,
       evidence: details?.evidence,
       uncertainties: details?.uncertainties ?? [],
-      isUserConfirmed: entity.isUserConfirmed
+      isUserConfirmed: entity.isUserConfirmed,
+      foodCategory: details?.foodCategory.flatMap(FoodCategory.init(rawValue:))
     )
   }
 
@@ -319,10 +320,13 @@ final class SwiftDataMealRepository: MealRepository {
       SnapshotItemDetails(
         id: $0.id,
         evidence: $0.evidence,
-        uncertainties: $0.uncertainties
+        uncertainties: $0.uncertainties,
+        foodCategory: $0.foodCategory?.rawValue
       )
     }
-    guard details.contains(where: { $0.evidence != nil || !$0.uncertainties.isEmpty }) else {
+    guard details.contains(where: {
+      $0.evidence != nil || !$0.uncertainties.isEmpty || $0.foodCategory != nil
+    }) else {
       return nil
     }
     return try? JSONEncoder().encode(details)
@@ -342,4 +346,6 @@ private struct SnapshotItemDetails: Codable {
   let id: UUID
   let evidence: String?
   let uncertainties: [String]
+  /// 存原始字符串：旧快照没有这个字段，读出为 nil；取值不认识时也只丢掉类别，不影响整条记录
+  let foodCategory: String?
 }

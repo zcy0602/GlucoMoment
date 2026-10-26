@@ -54,6 +54,20 @@ struct StableScoreMethodView: View {
             }
 
             Section {
+                ForEach(DietGuideline.allCases, id: \.self) { guideline in
+                    RuleRow(
+                        title: guideline.title,
+                        rule: guideline.summary,
+                        source: "\(DietGuideline.sourceTitle)\(guideline.principleText)"
+                    )
+                }
+            } header: {
+                Text("建议从哪里来")
+            } footer: {
+                Text("能按公式计算稳糖分时，识别页和饮食页的建议由 App 按固定规则生成，每条都对应上面的一条指南，并写明这一餐的具体数值；有食物缺少类别时，沿用 AI 给出的建议。建议不涉及诊断和用药。")
+            }
+
+            Section {
                 Text("稳糖分是帮助你记录和比较饮食的参考，不是医学诊断。同一种食物在不同人身上的血糖反应差别很大，建议结合自己的血糖记录来看。如需调整饮食或用药，请咨询医生或营养师。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

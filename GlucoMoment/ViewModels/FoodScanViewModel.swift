@@ -224,7 +224,8 @@ final class FoodScanViewModel {
                     confidence: item.confidence,
                     evidence: item.evidence,
                     uncertainties: item.uncertainties,
-                    isUserConfirmed: true
+                    isUserConfirmed: true,
+                    foodCategory: item.foodCategory
                 )
             }
             let meal = MealRecord(
@@ -247,7 +248,7 @@ final class FoodScanViewModel {
                 analysisConfidence: result.confidence,
                 glucoseImpact: result.effectiveGlucoseImpact,
                 score: result.effectiveScore,
-                suggestions: result.suggestions,
+                suggestions: result.effectiveSuggestions,
                 followUpQuestions: result.followUpQuestions,
                 uncertainties: result.uncertainties,
                 items: items

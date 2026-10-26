@@ -33,7 +33,8 @@ struct MealLogDemoView: View {
             MealSuggestionCard(
                 title: viewModel.suggestionTitle,
                 text: viewModel.suggestionText,
-                tags: viewModel.suggestionTags
+                tags: viewModel.suggestionTags,
+                citation: viewModel.suggestionCitation
             )
 
             NavigationLink {
@@ -121,6 +122,7 @@ private struct MealSuggestionCard: View {
     let title: String
     let text: String
     let tags: [String]
+    let citation: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -128,7 +130,7 @@ private struct MealSuggestionCard: View {
                 Label(title, systemImage: "sparkles")
                     .font(.headline)
                 Spacer()
-                PillTag(title: "可执行", tint: Color.brandTeal)
+                PillTag(title: "指南建议", tint: Color.brandTeal)
             }
 
             Text(text)
@@ -140,7 +142,16 @@ private struct MealSuggestionCard: View {
                     PillTag(title: tag, tint: Color.brandLeaf)
                 }
             }
+
+            NavigationLink {
+                StableScoreMethodView()
+            } label: {
+                Label(citation, systemImage: "book.closed")
+                    .font(.caption)
+                    .multilineTextAlignment(.leading)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }

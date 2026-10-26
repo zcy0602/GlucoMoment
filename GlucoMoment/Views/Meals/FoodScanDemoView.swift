@@ -151,7 +151,10 @@ struct FoodScanDemoView: View {
             RecognitionSummaryCard(result: result)
             NutritionGrid(result: result)
             StableScoreCard(result: result)
-            SuggestionListCard(suggestions: result.suggestions)
+            SuggestionListCard(
+                suggestions: result.effectiveSuggestions,
+                citation: result.suggestionCitation
+            )
 
             if !result.uncertainties.isEmpty || !result.followUpQuestions.isEmpty {
                 UncertaintyListCard(
@@ -1324,6 +1327,8 @@ private struct NutritionMetric: View {
 
 private struct SuggestionListCard: View {
     let suggestions: [String]
+    /// 按规则生成时的指南出处；沿用模型建议时为 nil
+    let citation: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1339,7 +1344,22 @@ private struct SuggestionListCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            if let citation {
+                NavigationLink {
+                    StableScoreMethodView()
+                } label: {
+                    Label(citation, systemImage: "book.closed")
+                        .font(.caption)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
+            Text("仅供饮食记录参考，调整饮食或用药请咨询医生或营养师。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
