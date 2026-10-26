@@ -141,11 +141,11 @@ private nonisolated extension Character {
     var isASCIIDigit: Bool { isASCII && isNumber }
 }
 
-// MARK: - 演示模式
+// MARK: - 本地模板
 
-nonisolated extension DemoFoodAnalysisService: MealReviewService {
-    /// 按固定模板生成，便于没有网络和 Key 时演示整条流程；同样只写占位符
-    func review(_ payload: MealReviewPayload) async throws -> MealReviewDraft {
+/// 按固定模板写复盘，同样只写占位符。演示模式直接用它，模型结果全部校验不过时也退回它
+nonisolated enum MealReviewTemplate {
+    static func items(for payload: MealReviewPayload) -> [MealReviewDraftItem] {
         var items: [MealReviewDraftItem] = []
 
         if let highest = payload.meals.max(by: { $0.response.peakRise < $1.response.peakRise }) {
@@ -178,8 +178,16 @@ nonisolated extension DemoFoodAnalysisService: MealReviewService {
             ))
         }
 
-        return MealReviewDraft(
-            items: Array(items.prefix(MealReviewPrompt.maxItemCount)),
+        return Array(items.prefix(MealReviewPrompt.maxItemCount))
+    }
+}
+
+// MARK: - 演示模式
+
+nonisolated extension DemoFoodAnalysisService: MealReviewService {
+    func review(_ payload: MealReviewPayload) async throws -> MealReviewDraft {
+        MealReviewDraft(
+            items: MealReviewTemplate.items(for: payload),
             provider: "demo",
             model: "meal-review-demo-v1",
             promptVersion: MealReviewPrompt.version
