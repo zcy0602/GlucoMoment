@@ -585,3 +585,26 @@ private nonisolated struct APIErrorEnvelope: Decodable, Sendable {
 
     var resolvedMessage: String? { error?.message ?? message }
 }
+
+// MARK: - 近期复盘
+
+extension OpenAICompatibleFoodAnalysisService: MealReviewService {
+    /// 只发文字；系统提示词与代理一致，用户提示里是本地整理好的 JSON
+    func review(_ payload: MealReviewPayload) async throws -> MealReviewDraft {
+        let prompt = MealReviewPrompt.userPrompt(payloadJSON: try MealReviewPrompt.payloadJSON(payload))
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": MealReviewPrompt.systemPrompt],
+            ["role": "user", "content": prompt]
+        ]
+
+        return try await withRetries {
+            let data = try await requestJSONObject(messages: messages, maxTokens: 1200)
+            do {
+                return try JSONDecoder().decode(MealReviewResponseDTO.self, from: data)
+                    .makeDraft(provider: configuration.provider.resultIdentifier, model: model)
+            } catch {
+                throw FoodAnalysisError.invalidResponse
+            }
+        }
+    }
+}

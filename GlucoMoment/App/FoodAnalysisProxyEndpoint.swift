@@ -8,6 +8,7 @@ import Foundation
 nonisolated enum FoodAnalysisProxyEndpoint {
     static let analysisPath = "/v1/food/analyze"
     static let correctionPath = "/v1/food/correct"
+    static let reviewPath = "/v1/review/recent"
     static let healthPath = "/health"
 
     static func analysisURL(from input: String) -> URL? {
@@ -48,6 +49,25 @@ nonisolated enum FoodAnalysisProxyEndpoint {
             components.path = String(components.path.dropLast("analyze".count)) + "correct"
         } else {
             components.path = correctionPath
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    /// 近期复盘与识别接口在同一个代理上：识别地址以 /food/analyze 结尾时换成 /review/recent，否则使用默认路径
+    static func reviewURL(from analysisURL: URL) -> URL? {
+        guard var components = URLComponents(
+            url: analysisURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+
+        if components.path.hasSuffix("/food/analyze") {
+            components.path = String(components.path.dropLast("food/analyze".count)) + "review/recent"
+        } else {
+            components.path = reviewPath
         }
         components.query = nil
         components.fragment = nil

@@ -179,3 +179,26 @@ private nonisolated extension Data {
         append(contentsOf: string.utf8)
     }
 }
+
+// MARK: - 近期复盘
+
+extension RemoteFoodAnalysisService: MealReviewService {
+    /// 与识别、修正共用 multipart 和重试；数据放在 payload 字段，不带照片
+    func review(_ payload: MealReviewPayload) async throws -> MealReviewDraft {
+        guard let reviewURL = FoodAnalysisProxyEndpoint.reviewURL(from: endpoint) else {
+            throw FoodAnalysisError.invalidEndpoint
+        }
+
+        let data = try await post(
+            to: reviewURL,
+            fields: ["payload": try MealReviewPrompt.payloadJSON(payload)],
+            images: []
+        )
+        do {
+            return try JSONDecoder().decode(MealReviewResponseDTO.self, from: data)
+                .makeDraft(provider: "proxy", model: "unknown")
+        } catch {
+            throw FoodAnalysisError.invalidResponse
+        }
+    }
+}

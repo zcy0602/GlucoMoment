@@ -12,22 +12,27 @@ import {
   ClientInputError,
   PROMPT_VERSION,
   CORRECTION_PROMPT_VERSION,
+  REVIEW_PROMPT_VERSION,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_COUNT,
   MAX_TOTAL_IMAGE_BYTES,
   MAX_CORRECTION_LENGTH,
   SYSTEM_PROMPT,
   CORRECTION_SYSTEM_PROMPT,
+  REVIEW_SYSTEM_PROMPT,
   resolveProvider,
   buildUserPrompt,
   buildUserContent,
   buildCorrectionUserPrompt,
+  buildReviewUserPrompt,
   cleanText,
   parseModelJSON,
   parseCorrectionRecord,
   parseCorrectionHistory,
+  parseReviewPayload,
   validateAnalysis,
   validateCorrection,
+  validateReview,
   uint8ArrayToBase64,
   type UploadedImage,
 } from "./core";
@@ -195,6 +200,7 @@ app.get("/health", (_req: Request, res: Response) => {
     status: "ok",
     promptVersion: PROMPT_VERSION,
     correctionPromptVersion: CORRECTION_PROMPT_VERSION,
+    reviewPromptVersion: REVIEW_PROMPT_VERSION,
   });
 });
 
@@ -291,6 +297,44 @@ app.post("/v1/food/correct", (req: Request, res: Response) => {
       });
     } catch (error) {
       sendError(res, error, requestId, "修正服务暂时不可用。");
+    }
+  });
+});
+
+// 近期复盘：App 发来本地整理好的数据（payload 字段，JSON 字符串），不接受照片；数字由 App 填入
+app.post("/v1/review/recent", (req: Request, res: Response) => {
+  upload(req, res, async (err) => {
+    const requestId =
+      (req.headers["x-request-id"] as string) || randomUUID();
+
+    if (err) {
+      const { status, message } = uploadErrorResponse(err);
+      res.status(status).json({ message, requestId });
+      return;
+    }
+
+    try {
+      if (readImages(req, false).length > 0) {
+        throw new ClientInputError("复盘不需要照片。");
+      }
+      const payload = parseReviewPayload(req.body?.payload);
+      const { content, provider, model } = await callModel(
+        REVIEW_SYSTEM_PROMPT,
+        buildReviewUserPrompt(payload),
+        requestId,
+        1200,
+      );
+
+      res.json({
+        requestId,
+        schemaVersion: 1,
+        provider,
+        model,
+        promptVersion: REVIEW_PROMPT_VERSION,
+        ...validateReview(parseModelJSON(content)),
+      });
+    } catch (error) {
+      sendError(res, error, requestId, "复盘服务暂时不可用。");
     }
   });
 });

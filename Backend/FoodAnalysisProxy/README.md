@@ -7,6 +7,7 @@
 - `GET /health`：健康检查，不调用模型。
 - `POST /v1/food/analyze`：`multipart/form-data`，图片字段名为 `image`，可重复 1～6 次，按顺序作为同一餐的多张照片。
 - `POST /v1/food/correct`：一句话修正，`multipart/form-data`。字段 `instruction`（本次说明，最多 200 字）、`currentResult`（当前记录 JSON，含用户手动修改）、`history`（之前的修正 JSON 数组，最多取最近 10 轮），以及 `userFoodContext`、`mealPeriod`、`locale`；`image` 可选，0～6 张。代理同样不保存会话，返回 `reply`、`updatedItems`（带 `ref`）、`addedItems`、`removedRefs`、`followUpQuestions`，由 App 合并到当前记录。地址由识别地址末尾的 `analyze` 换成 `correct` 得到。
+- `POST /v1/review/recent`：近期复盘，`multipart/form-data`，不接受照片。字段 `payload` 是 App 在本地整理好的 JSON（每餐的餐后指标、曲线和分组比较，最大 64KB），代理只检查结构，然后原样交给模型。返回最多 3 条 `items`，每条包含 `text`、`mealIds`、`comparisonIds`、`guidelineId`。`text` 里的数字是 `{M1.peakRise}` 这样的占位符，由 App 校验后填入本地数值。地址由识别地址末尾的 `food/analyze` 换成 `review/recent` 得到。
 
 代理只记录平台自身的请求元数据。不要在日志中输出表单内容、图片 Base64、模型完整请求或响应。不要把 `.env` 或 API Key 提交到 Git。
 
