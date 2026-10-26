@@ -7,7 +7,7 @@ import Foundation
 
 /// 稳糖建议可以引用的指南条目（白名单），原文见《成人糖尿病食养指南（2023 年版）》。
 /// 识别页的建议、饮食页的提示和评分依据页都只从这里取依据；新增条目前先核对指南原文。
-nonisolated enum DietGuideline: String, CaseIterable, Hashable, Sendable {
+nonisolated enum DietGuideline: String, CaseIterable, Codable, Hashable, Sendable {
     case vegetablesEveryMeal = "G1a"
     case dairyAndSoyDaily = "G1b"
     case wholeGrainShare = "G3a"

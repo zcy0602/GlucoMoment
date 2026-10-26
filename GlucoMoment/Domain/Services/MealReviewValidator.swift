@@ -6,8 +6,8 @@
 import Foundation
 
 /// 校验并渲染后的近期复盘，界面直接显示
-nonisolated struct MealReview: Hashable, Sendable {
-    nonisolated struct Item: Hashable, Sendable {
+nonisolated struct MealReview: Codable, Hashable, Sendable {
+    nonisolated struct Item: Codable, Hashable, Sendable {
         /// 占位符已替换为本地数值
         var text: String
         /// 例如「依据：10-21（周三）晚餐 · 按餐次 · 食养指南原则三」

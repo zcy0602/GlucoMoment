@@ -37,12 +37,23 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .trends:
             GlucoseTrendDemoView(
                 repository: dependencies.glucoseRepository,
+                mealRepository: dependencies.mealRepository,
+                reviewService: dependencies.mealReviewService,
+                reviewSettings: dependencies.mealReviewSettings,
+                reviewCache: dependencies.mealReviewCache,
+                foodAnalysisSettings: dependencies.foodAnalysisSettings,
                 healthDataRevision: healthDataRevision
             )
         case .plan:
             CarePlanDemoView()
         case .settings:
-            AppSettingsView(healthKitCoordinator: dependencies.healthKitCoordinator, foodAnalysisSettings: dependencies.foodAnalysisSettings, foodAnalysisCredentialStore: dependencies.foodAnalysisCredentialStore)
+            AppSettingsView(
+                healthKitCoordinator: dependencies.healthKitCoordinator,
+                foodAnalysisSettings: dependencies.foodAnalysisSettings,
+                foodAnalysisCredentialStore: dependencies.foodAnalysisCredentialStore,
+                mealReviewSettings: dependencies.mealReviewSettings,
+                mealReviewCache: dependencies.mealReviewCache
+            )
         }
         
                 

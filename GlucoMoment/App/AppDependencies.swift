@@ -12,6 +12,10 @@ struct AppDependencies {
     let glucoseRepository: any GlucoseRepository
     let mealRepository: any MealRepository
     let foodAnalysisService: any FoodAnalysisService
+    /// 与 foodAnalysisService 是同一个路由服务，按当前识别方式选择
+    let mealReviewService: any MealReviewService
+    let mealReviewSettings: MealReviewSettings
+    let mealReviewCache: any MealReviewCacheStoring
     let foodAnalysisSettings: FoodAnalysisSettings
     let foodAnalysisCredentialStore: any FoodAnalysisCredentialStoring
     let mealPhotoStore: any MealPhotoStoring
@@ -43,14 +47,18 @@ struct AppDependencies {
             glucoseRepository: glucoseRepository,
             mealRepository: mealRepository
         )
+        let analysisService = FoodAnalysisConfiguration.makeService(
+            settings: settings,
+            credentialStore: credentialStore
+        )
         return AppDependencies(
             modelContainer: modelContainer,
             glucoseRepository: glucoseRepository,
             mealRepository: mealRepository,
-            foodAnalysisService: FoodAnalysisConfiguration.makeService(
-                settings: settings,
-                credentialStore: credentialStore
-            ),
+            foodAnalysisService: analysisService,
+            mealReviewService: analysisService,
+            mealReviewSettings: MealReviewSettings(),
+            mealReviewCache: LocalMealReviewCacheStore(),
             foodAnalysisSettings: settings,
             foodAnalysisCredentialStore: credentialStore,
             mealPhotoStore: LocalMealPhotoStore(),
@@ -67,14 +75,18 @@ struct AppDependencies {
             }
             let settings = FoodAnalysisSettings(mode: .demo)
             let credentialStore = InMemoryFoodAnalysisCredentialStore()
+            let analysisService = FoodAnalysisConfiguration.makeService(
+                settings: settings,
+                credentialStore: credentialStore
+            )
             return AppDependencies(
                 modelContainer: modelContainer,
                 glucoseRepository: repository,
                 mealRepository: SwiftDataMealRepository(modelContainer: modelContainer),
-                foodAnalysisService: FoodAnalysisConfiguration.makeService(
-                    settings: settings,
-                    credentialStore: credentialStore
-                ),
+                foodAnalysisService: analysisService,
+                mealReviewService: analysisService,
+                mealReviewSettings: MealReviewSettings(isEnabled: false),
+                mealReviewCache: InMemoryMealReviewCacheStore(),
                 foodAnalysisSettings: settings,
                 foodAnalysisCredentialStore: credentialStore,
                 mealPhotoStore: InMemoryMealPhotoStore(),

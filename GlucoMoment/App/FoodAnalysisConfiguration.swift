@@ -9,7 +9,7 @@ enum FoodAnalysisConfiguration {
     static func makeService(
         settings: FoodAnalysisSettings,
         credentialStore: any FoodAnalysisCredentialStoring
-    ) -> any FoodAnalysisService {
+    ) -> RoutingFoodAnalysisService {
         RoutingFoodAnalysisService(
             configurationProvider: { settings.runtimeConfiguration },
             credentialStore: credentialStore,
