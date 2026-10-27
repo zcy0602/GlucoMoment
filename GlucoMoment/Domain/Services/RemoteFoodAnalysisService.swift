@@ -5,7 +5,8 @@
 
 import Foundation
 
-actor RemoteFoodAnalysisService: FoodAnalysisService {
+actor RemoteFoodAnalysisService: FoodAnalysisService, MeasuredFoodAnalysisService {
+    /// 代理服务器的分析接口地址（`/v1/food/analyze`），两段式接口由此推导。
     private let endpoint: URL
     private let installationIdentifier: String
     private let session: URLSession
@@ -29,16 +30,110 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
         mealPeriod: MealPeriod?
     ) async throws -> FoodRecognitionResult {
         let requestID = UUID()
+        let data = try await withRetry {
+            try await self.postMultipart(
+                to: self.endpoint,
+                requestID: requestID,
+                schemaVersion: "1",
+                fields: self.commonFields(userFoodContext: userFoodContext, mealPeriod: mealPeriod),
+                imageData: imageData
+            )
+        }
+
+        do {
+            return try JSONDecoder().decode(FoodAnalysisProxyResponseDTO.self, from: data).makeResult()
+        } catch {
+            throw FoodAnalysisError.invalidResponse
+        }
+    }
+
+    func detectFoods(
+        imageData: Data,
+        userFoodContext: String?,
+        mealPeriod: MealPeriod?
+    ) async throws -> FoodDetectionResult {
+        guard let url = FoodAnalysisProxyEndpoint.detectionURL(from: endpoint) else {
+            throw FoodAnalysisError.invalidEndpoint
+        }
+
+        let requestID = UUID()
+        let data = try await withRetry {
+            try await self.postMultipart(
+                to: url,
+                requestID: requestID,
+                schemaVersion: "2",
+                fields: self.commonFields(userFoodContext: userFoodContext, mealPeriod: mealPeriod),
+                imageData: imageData
+            )
+        }
+
+        do {
+            return try JSONDecoder().decode(FoodDetectionProxyResponseDTO.self, from: data).makeResult()
+        } catch let error as FoodAnalysisError {
+            throw error
+        } catch {
+            throw FoodAnalysisError.invalidResponse
+        }
+    }
+
+    func estimateNutrition(
+        imageData: Data,
+        detection: FoodDetectionResult,
+        measurements: [FoodMeasuredItem],
+        userFoodContext: String?,
+        mealPeriod: MealPeriod?
+    ) async throws -> FoodRecognitionResult {
+        guard let url = FoodAnalysisProxyEndpoint.measuredEstimateURL(from: endpoint) else {
+            throw FoodAnalysisError.invalidEndpoint
+        }
+
+        var fields = commonFields(userFoodContext: userFoodContext, mealPeriod: mealPeriod)
+        fields["measurements"] = try FoodMeasurementReportDTO(
+            mealName: detection.mealName,
+            measurements: measurements
+        ).jsonString()
+
+        let requestID = UUID()
+        let data = try await withRetry {
+            try await self.postMultipart(
+                to: url,
+                requestID: requestID,
+                schemaVersion: "2",
+                fields: fields,
+                imageData: imageData
+            )
+        }
+
+        do {
+            let response = try JSONDecoder().decode(FoodAnalysisProxyResponseDTO.self, from: data)
+            return FoodMeasuredResultAssembler.assemble(
+                try response.makeResult(),
+                itemIndices: response.items.map(\.itemIndex),
+                measurements: measurements
+            )
+        } catch let error as FoodAnalysisError {
+            throw error
+        } catch {
+            throw FoodAnalysisError.invalidResponse
+        }
+    }
+
+    private func commonFields(userFoodContext: String?, mealPeriod: MealPeriod?) -> [String: String] {
+        [
+            "locale": "zh-CN",
+            "mealPeriod": mealPeriod?.rawValue ?? "",
+            "userFoodContext": userFoodContext ?? ""
+        ]
+    }
+
+    private func withRetry<Result: Sendable>(
+        _ operation: @Sendable () async throws -> Result
+    ) async throws -> Result {
         var lastError: (any Error)?
 
         for attempt in 0...maximumRetryCount {
             do {
-                return try await performRequest(
-                    requestID: requestID,
-                    imageData: imageData,
-                    userFoodContext: userFoodContext,
-                    mealPeriod: mealPeriod
-                )
+                return try await operation()
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as FoodAnalysisError {
@@ -58,29 +153,29 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
         throw lastError ?? FoodAnalysisError.invalidResponse
     }
 
-    private func performRequest(
+    /// 以 multipart/form-data 上传图片和字段，返回 2xx 响应体。
+    private func postMultipart(
+        to url: URL,
         requestID: UUID,
-        imageData: Data,
-        userFoodContext: String?,
-        mealPeriod: MealPeriod?
-    ) async throws -> FoodRecognitionResult {
+        schemaVersion: String,
+        fields: [String: String],
+        imageData: Data
+    ) async throws -> Data {
         let boundary = "GlucoMoment-\(requestID.uuidString)"
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 45
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(requestID.uuidString, forHTTPHeaderField: "X-Request-Id")
         request.setValue(installationIdentifier, forHTTPHeaderField: "X-Install-Id")
+
+        var allFields = fields
+        allFields["requestId"] = requestID.uuidString
+        allFields["schemaVersion"] = schemaVersion
         request.httpBody = MultipartFormData.makeBody(
             boundary: boundary,
-            fields: [
-                "requestId": requestID.uuidString,
-                "schemaVersion": "1",
-                "locale": "zh-CN",
-                "mealPeriod": mealPeriod?.rawValue ?? "",
-                "userFoodContext": userFoodContext ?? ""
-            ],
+            fields: allFields,
             imageData: imageData
         )
 
@@ -97,11 +192,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
             )
         }
 
-        do {
-            return try JSONDecoder().decode(FoodAnalysisProxyResponseDTO.self, from: data).makeResult()
-        } catch {
-            throw FoodAnalysisError.invalidResponse
-        }
+        return data
     }
 }
 

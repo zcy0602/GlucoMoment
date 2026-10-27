@@ -19,6 +19,7 @@ nonisolated struct FoodRecognitionResult: Hashable, Sendable {
     var provider: String
     var model: String
     var promptVersion: String
+    var measurementMethod: FoodMeasurementMethod = .photoEstimate
 
     var caloriesKcal: Double {
         items.reduce(0) { $0 + $1.caloriesKcal }
@@ -78,6 +79,8 @@ nonisolated struct FoodRecognitionItem: Identifiable, Hashable, Sendable {
     var confidence: Double
     var evidence: String
     var uncertainties: [String]
+    /// LiDAR 实测摘要；照片估算时为 nil。
+    var measurement: FoodItemMeasurement?
 
     init(
         id: UUID = UUID(),
@@ -91,7 +94,8 @@ nonisolated struct FoodRecognitionItem: Identifiable, Hashable, Sendable {
         fiberGrams: Double,
         confidence: Double,
         evidence: String,
-        uncertainties: [String] = []
+        uncertainties: [String] = [],
+        measurement: FoodItemMeasurement? = nil
     ) {
         self.id = id
         self.name = name
@@ -105,5 +109,6 @@ nonisolated struct FoodRecognitionItem: Identifiable, Hashable, Sendable {
         self.confidence = confidence
         self.evidence = evidence
         self.uncertainties = uncertainties
+        self.measurement = measurement
     }
 }

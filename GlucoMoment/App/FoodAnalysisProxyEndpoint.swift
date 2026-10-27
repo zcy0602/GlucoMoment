@@ -7,6 +7,8 @@ import Foundation
 
 nonisolated enum FoodAnalysisProxyEndpoint {
     static let analysisPath = "/v1/food/analyze"
+    static let detectionPath = "/v1/food/detect"
+    static let measuredEstimatePath = "/v1/food/estimate"
     static let healthPath = "/health"
 
     static func analysisURL(from input: String) -> URL? {
@@ -34,6 +36,16 @@ nonisolated enum FoodAnalysisProxyEndpoint {
         return components.url
     }
 
+    /// LiDAR 两段式识别的检测接口；与分析接口位于同一路径前缀下。
+    static func detectionURL(from analysisURL: URL) -> URL? {
+        siblingURL(of: analysisURL, path: detectionPath)
+    }
+
+    /// LiDAR 两段式识别的估算接口。
+    static func measuredEstimateURL(from analysisURL: URL) -> URL? {
+        siblingURL(of: analysisURL, path: measuredEstimatePath)
+    }
+
     static func healthURL(from analysisURL: URL) -> URL? {
         guard var components = URLComponents(
             url: analysisURL,
@@ -43,6 +55,21 @@ nonisolated enum FoodAnalysisProxyEndpoint {
         }
 
         components.path = healthPath
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    /// 若分析地址形如 `https://host/prefix/v1/food/analyze`，则保留 `/prefix`；否则直接使用根路径。
+    private static func siblingURL(of analysisURL: URL, path: String) -> URL? {
+        guard var components = URLComponents(url: analysisURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        let prefix = components.path.hasSuffix(analysisPath)
+            ? String(components.path.dropLast(analysisPath.count))
+            : ""
+        components.path = prefix + path
         components.query = nil
         components.fragment = nil
         return components.url
