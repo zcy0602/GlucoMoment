@@ -12,6 +12,8 @@ struct ContentView: View {
     let dependencies: AppDependencies
     @State private var selectedTab: AppTab = .today
     @State private var healthKitCoordinator: HealthKitCoordinator
+    /// 新版界面开关，在两版的设置页里都能切换
+    @AppStorage(InterfacePreference.redesignKey) private var usesRedesign = true
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
@@ -19,6 +21,31 @@ struct ContentView: View {
     }
 
     var body: some View {
+        Group {
+            if usesRedesign {
+                RootTabView(
+                    dependencies: dependencies,
+                    healthDataRevision: healthKitCoordinator.dataRevision
+                )
+            } else {
+                legacyTabs
+            }
+        }
+        .task { await healthKitCoordinator.handleLaunch() }
+        .sheet(item: $healthKitCoordinator.presentedSheet) { sheet in
+            switch sheet {
+            case .introduction:
+                HealthKitIntroductionView(coordinator: healthKitCoordinator)
+            }
+        }
+        .alert("HealthKit 操作失败", isPresented: $healthKitCoordinator.isShowingError) {
+        } message: {
+            Text(healthKitCoordinator.errorMessage ?? "请稍后重试。")
+        }
+    }
+
+    /// 旧版界面，保留用于对比
+    private var legacyTabs: some View {
         TabView(selection: $selectedTab) {
             ForEach(AppTab.allCases) { tab in
                 NavigationStack {
@@ -36,17 +63,6 @@ struct ContentView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .tint(Color.brandTeal)
-        .task { await healthKitCoordinator.handleLaunch() }
-        .sheet(item: $healthKitCoordinator.presentedSheet) { sheet in
-            switch sheet {
-            case .introduction:
-                HealthKitIntroductionView(coordinator: healthKitCoordinator)
-            }
-        }
-        .alert("HealthKit 操作失败", isPresented: $healthKitCoordinator.isShowingError) {
-        } message: {
-            Text(healthKitCoordinator.errorMessage ?? "请稍后重试。")
-        }
     }
 }
 
