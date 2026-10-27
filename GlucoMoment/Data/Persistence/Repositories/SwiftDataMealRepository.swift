@@ -51,6 +51,7 @@ final class SwiftDataMealRepository: MealRepository {
       makeRecord(
         from: entity,
         snapshot: try fetchSnapshot(mealID: entity.id),
+        measurements: try fetchMeasurements(mealID: entity.id),
         nutritionAvailability: try nutritionAvailability(mealID: entity.id)
       )
     }
@@ -65,6 +66,7 @@ final class SwiftDataMealRepository: MealRepository {
     return makeRecord(
       from: entity,
       snapshot: try fetchSnapshot(mealID: mealID),
+      measurements: try fetchMeasurements(mealID: mealID),
       nutritionAvailability: try nutritionAvailability(mealID: mealID)
     )
   }
@@ -81,6 +83,7 @@ final class SwiftDataMealRepository: MealRepository {
       modelContext.insert(makeEntity(from: meal))
     }
     try upsertSnapshot(from: meal)
+    try replaceMeasurements(for: meal)
 
     try modelContext.save()
   }
@@ -93,6 +96,9 @@ final class SwiftDataMealRepository: MealRepository {
 
     if let snapshot = try fetchSnapshot(mealID: mealID) {
       modelContext.delete(snapshot)
+    }
+    for measurement in try fetchMeasurementEntities(mealID: mealID) {
+      modelContext.delete(measurement)
     }
     guard let entity = try modelContext.fetch(descriptor).first else {
       try modelContext.save()
@@ -132,6 +138,7 @@ final class SwiftDataMealRepository: MealRepository {
   private func makeRecord(
     from entity: MealRecordEntity,
     snapshot: MealAnalysisSnapshotEntity?,
+    measurements: [UUID: FoodItemMeasurement],
     nutritionAvailability: MealNutritionAvailability
   ) -> MealRecord {
     let itemDetails = decodeItemDetails(snapshot?.itemDetailsData)
@@ -160,7 +167,7 @@ final class SwiftDataMealRepository: MealRepository {
       uncertainties: decodeStrings(snapshot?.uncertaintiesData),
       items: entity.items
         .sorted { $0.sortOrder < $1.sortOrder }
-        .map { makeItem(from: $0, details: itemDetails[$0.id]) },
+        .map { makeItem(from: $0, details: itemDetails[$0.id], measurement: measurements[$0.id]) },
       nutritionAvailability: nutritionAvailability
     )
   }
@@ -176,7 +183,8 @@ final class SwiftDataMealRepository: MealRepository {
 
   private func makeItem(
     from entity: MealFoodItemEntity,
-    details: SnapshotItemDetails?
+    details: SnapshotItemDetails?,
+    measurement: FoodItemMeasurement?
   ) -> MealFoodItem {
     MealFoodItem(
       id: entity.id,
@@ -191,7 +199,8 @@ final class SwiftDataMealRepository: MealRepository {
       confidence: entity.confidence,
       evidence: details?.evidence,
       uncertainties: details?.uncertainties ?? [],
-      isUserConfirmed: entity.isUserConfirmed
+      isUserConfirmed: entity.isUserConfirmed,
+      measurement: measurement
     )
   }
 
@@ -273,6 +282,30 @@ final class SwiftDataMealRepository: MealRepository {
     var descriptor = FetchDescriptor<MealAnalysisSnapshotEntity>(predicate: predicate)
     descriptor.fetchLimit = 1
     return try modelContext.fetch(descriptor).first
+  }
+
+  private func fetchMeasurementEntities(mealID: UUID) throws -> [MealFoodItemMeasurementEntity] {
+    let predicate = #Predicate<MealFoodItemMeasurementEntity> { $0.mealID == mealID }
+    return try modelContext.fetch(FetchDescriptor<MealFoodItemMeasurementEntity>(predicate: predicate))
+  }
+
+  private func fetchMeasurements(mealID: UUID) throws -> [UUID: FoodItemMeasurement] {
+    try fetchMeasurementEntities(mealID: mealID).reduce(into: [:]) { result, entity in
+      result[entity.foodItemID] = entity.measurement
+    }
+  }
+
+  /// 食物条目在每次保存时整体重建，测量摘要也随之整体替换。
+  private func replaceMeasurements(for meal: MealRecord) throws {
+    for existing in try fetchMeasurementEntities(mealID: meal.id) {
+      modelContext.delete(existing)
+    }
+    for item in meal.items {
+      guard let measurement = item.measurement else { continue }
+      modelContext.insert(
+        MealFoodItemMeasurementEntity(foodItemID: item.id, mealID: meal.id, measurement: measurement)
+      )
+    }
   }
 
   private func upsertSnapshot(from meal: MealRecord) throws {

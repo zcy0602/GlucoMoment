@@ -7,7 +7,7 @@ import Foundation
 import SwiftData
 
 enum ModelContainerFactory {
-    static let schema = Schema(versionedSchema: GlucoMomentSchemaV4.self)
+    static let schema = Schema(versionedSchema: GlucoMomentSchemaV5.self)
 
     static func makeLive() throws -> ModelContainer {
         try make(isStoredInMemoryOnly: false)

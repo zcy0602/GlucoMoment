@@ -24,6 +24,8 @@ struct FoodScanDemoView: View {
     @State private var presentedSheet: FoodScanSheet?
     @State private var photoSelectionIssue: PhotoSelectionIssue?
     @State private var isLoadingPhoto = false
+    @State private var isPresentingDepthScan = false
+    @State private var pendingDepthScanAction: DepthScanAction?
 
     init(
         analysisService: any FoodAnalysisService,
@@ -44,11 +46,14 @@ struct FoodScanDemoView: View {
     var body: some View {
         DemoScreen(title: viewModel.title) {
             if let selectedPhotoData = viewModel.selectedPhotoData {
-                CameraPreviewCard(
-                    photoData: selectedPhotoData,
-                    title: viewModel.result?.name ?? "待识别餐食",
-                    stateText: viewModel.scanStateText
-                )
+                // 测量审核页自带带遮罩的照片，不再重复显示预览。
+                if viewModel.phase != .reviewingMeasurement {
+                    CameraPreviewCard(
+                        photoData: selectedPhotoData,
+                        title: viewModel.result?.name ?? "待识别餐食",
+                        stateText: viewModel.scanStateText
+                    )
+                }
                 PhotoActionRow(
                     selectedPhotoItem: $selectedPhotoItem,
                     onCameraTap: openCamera
@@ -92,6 +97,15 @@ struct FoodScanDemoView: View {
                 FoodReviewSheet(viewModel: viewModel)
             }
         }
+#if os(iOS)
+        .fullScreenCover(isPresented: $isPresentingDepthScan, onDismiss: handleDepthScanDismissal) {
+            FoodDepthScanView { capture in
+                pendingDepthScanAction = .capture(capture)
+            } onUseRegularCamera: {
+                pendingDepthScanAction = .regularCamera
+            }
+        }
+#endif
         .onChange(of: selectedPhotoItem) { _, newItem in
             guard let newItem else { return }
 
@@ -180,6 +194,23 @@ struct FoodScanDemoView: View {
                     title: "正在识别餐食",
                     detail: "正在结合照片和你的描述估算食物与营养信息…"
                 )
+            case .detecting:
+                AnalysisProgressCard(
+                    title: "正在定位食物",
+                    detail: "识别每道菜的位置，同时融合 LiDAR 深度数据…"
+                )
+            case .segmenting:
+                AnalysisProgressCard(
+                    title: "正在分割菜品",
+                    detail: "按菜品切分照片和尺寸，首次使用可能需要下载分割模型…"
+                )
+            case .reviewingMeasurement:
+                FoodMeasurementReviewView(viewModel: viewModel)
+            case .estimating:
+                AnalysisProgressCard(
+                    title: "正在估算营养",
+                    detail: "结合 LiDAR 实测份量计算热量与营养素…"
+                )
             case .failed(let message):
                 InlineIssueCard(message: message)
                 Button {
@@ -190,13 +221,50 @@ struct FoodScanDemoView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+
+                if viewModel.isMeasuredFlow {
+                    Button {
+                        viewModel.fallBackToPhotoAnalysis()
+                    } label: {
+                        Label("改用普通照片识别", systemImage: "photo")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
             case .idle, .needsReview, .saving, .saved:
                 EmptyView()
             }
         }
     }
 
+    /// 有 LiDAR 的设备直接进入扫描模式，扫描界面内可切换到普通拍照。
     private func openCamera() {
+#if os(iOS)
+        if FoodDepthScanSession.isSupported {
+            isPresentingDepthScan = true
+            return
+        }
+#endif
+        openRegularCamera()
+    }
+
+    private func handleDepthScanDismissal() {
+        guard let action = pendingDepthScanAction else { return }
+        pendingDepthScanAction = nil
+
+        switch action {
+        case .capture(let capture):
+            withAnimation(.snappy) {
+                viewModel.selectDepthCapture(capture)
+            }
+            presentedSheet = .context
+        case .regularCamera:
+            openRegularCamera()
+        }
+    }
+
+    private func openRegularCamera() {
 #if os(iOS)
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             photoSelectionIssue = PhotoSelectionIssue(
@@ -246,6 +314,11 @@ private enum FoodScanSheet: String, Identifiable {
     case review
 
     var id: String { rawValue }
+}
+
+private enum DepthScanAction {
+    case capture(FoodDepthCapture)
+    case regularCamera
 }
 
 private struct PhotoSelectionIssue: Identifiable {
@@ -447,6 +520,10 @@ private struct FoodItemEditor: View {
             }
 
             TextField("份量描述", text: $item.portionDescription)
+
+            if let measurement = item.measurement {
+                FoodMeasurementSummaryLabel(measurement: measurement)
+            }
 
             LabeledContent("估计重量") {
                 TextField("克", value: $item.estimatedGrams, format: .number)
@@ -854,6 +931,9 @@ private struct RecognitionSummaryCard: View {
             }
 
             FlowLayout(spacing: 8) {
+                if result.measurementMethod == .lidarMeasured {
+                    PillTag(title: FoodMeasurementMethod.lidarMeasured.label, tint: Color.brandLeaf)
+                }
                 ForEach(result.ingredients, id: \.self) { ingredient in
                     PillTag(title: ingredient, tint: Color.brandTeal)
                 }

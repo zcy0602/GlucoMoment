@@ -11,7 +11,8 @@ enum GlucoMomentMigrationPlan: SchemaMigrationPlan {
             GlucoMomentSchemaV1.self,
             GlucoMomentSchemaV2.self,
             GlucoMomentSchemaV3.self,
-            GlucoMomentSchemaV4.self
+            GlucoMomentSchemaV4.self,
+            GlucoMomentSchemaV5.self
         ]
     }
 
@@ -28,6 +29,10 @@ enum GlucoMomentMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: GlucoMomentSchemaV3.self,
                 toVersion: GlucoMomentSchemaV4.self
+            ),
+            .lightweight(
+                fromVersion: GlucoMomentSchemaV4.self,
+                toVersion: GlucoMomentSchemaV5.self
             )
         ]
     }

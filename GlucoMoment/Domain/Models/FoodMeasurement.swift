@@ -26,7 +26,7 @@ nonisolated enum FoodContainerType: String, Codable, CaseIterable, Identifiable,
     case shallowBowl
     case deepBowl
     case cup
-    case none
+    case noContainer
 
     var id: String { rawValue }
 
@@ -40,7 +40,7 @@ nonisolated enum FoodContainerType: String, Codable, CaseIterable, Identifiable,
             "深碗"
         case .cup:
             "杯"
-        case .none:
+        case .noContainer:
             "无容器"
         }
     }
@@ -55,7 +55,7 @@ nonisolated enum FoodContainerType: String, Codable, CaseIterable, Identifiable,
             "smallcircle.filled.circle"
         case .cup:
             "cup.and.saucer"
-        case .none:
+        case .noContainer:
             "square.dashed"
         }
     }

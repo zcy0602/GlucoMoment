@@ -94,12 +94,13 @@ actor RemoteFoodAnalysisService: FoodAnalysisService, MeasuredFoodAnalysisServic
         ).jsonString()
 
         let requestID = UUID()
+        let estimateFields = fields
         let data = try await withRetry {
             try await self.postMultipart(
                 to: url,
                 requestID: requestID,
                 schemaVersion: "2",
-                fields: fields,
+                fields: estimateFields,
                 imageData: imageData
             )
         }

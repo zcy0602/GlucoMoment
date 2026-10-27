@@ -23,6 +23,11 @@ nonisolated struct ContainerGeometry: Sendable, Hashable {
         static let shallowBowlDepthRatio: Float = 0.22
         static let deepBowlDepthRatio: Float = 0.42
         static let cupDepthRatio: Float = 1.1
+        /// 碗内壁轮廓指数：浅碗接近抛物面，深碗底部更平、碗壁更陡。
+        static let shallowBowlProfileExponent: Float = 2
+        static let deepBowlProfileExponent: Float = 4
+        /// 无容器（直接放在桌面上）时的相对体积误差。
+        static let noContainerUncertainty: Double = 0.05
     }
 
     let type: FoodContainerType
@@ -30,14 +35,17 @@ nonisolated struct ContainerGeometry: Sendable, Hashable {
     let center: SIMD2<Float>
     /// 碗口外半径。
     let rimRadius: Float
-    /// 碗口距桌面的高度。
+    /// 碗口距桌面的高度（实测可信时取实测值，否则为预设推算值）。
     let rimHeight: Float
+    /// 原始实测碗口高度，切换容器类型时重新参与判断。
+    let measuredRimHeight: Float?
 
     /// - Parameter measuredRimHeight: 实测碗口高度；为 nil 或不可信时按预设深径比推算。
     init(type: FoodContainerType, center: SIMD2<Float>, rimRadius: Float, measuredRimHeight: Float?) {
         self.type = type
         self.center = center
         self.rimRadius = max(rimRadius, 0)
+        self.measuredRimHeight = measuredRimHeight
 
         let diameter = 2 * max(rimRadius - Preset.wallThickness, 0)
         let presetHeight: Float = switch type {
@@ -103,16 +111,10 @@ nonisolated struct ContainerGeometry: Sendable, Hashable {
             guard radius > 0, depth > 0 else { return base }
             let distance = min(simd_distance(point, center), radius)
 
-            if depth <= radius {
-                // 球冠：碗口半径 a、深度 d，对应球半径 R = (a² + d²) / 2d。
-                let sphereRadius = (radius * radius + depth * depth) / (2 * depth)
-                let offset = sphereRadius - sqrt(max(sphereRadius * sphereRadius - distance * distance, 0))
-                return base + offset
-            } else {
-                // 比半球更深：底部为半径 a 的半球，上方为竖直碗壁。
-                let offset = radius - sqrt(max(radius * radius - distance * distance, 0))
-                return base + offset
-            }
+            // 幂函数内壁：内底高度 = 底厚 + d·(r/a)^p。p 越大碗底越平、碗壁越陡；
+            // 装满时体积为 πa²d·p/(p+2)，浅碗（p=2）为圆柱的 1/2，深碗（p=4）为 2/3。
+            let exponent = type == .deepBowl ? Preset.deepBowlProfileExponent : Preset.shallowBowlProfileExponent
+            return base + depth * pow(distance / radius, exponent)
         case .noContainer:
             return nil
         }
@@ -130,12 +132,12 @@ nonisolated struct ContainerGeometry: Sendable, Hashable {
         case .cup:
             0.08
         case .noContainer:
-            0.05
+            Preset.noContainerUncertainty
         }
     }
 
     func with(type newType: FoodContainerType) -> ContainerGeometry {
-        ContainerGeometry(type: newType, center: center, rimRadius: rimRadius, measuredRimHeight: rimHeight)
+        ContainerGeometry(type: newType, center: center, rimRadius: rimRadius, measuredRimHeight: measuredRimHeight)
     }
 }
 

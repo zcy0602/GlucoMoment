@@ -126,6 +126,8 @@ nonisolated struct MealFoodItem: Identifiable, Hashable, Sendable {
     var evidence: String?
     var uncertainties: [String]
     var isUserConfirmed: Bool
+    /// LiDAR 测量摘要；照片估算或手动记录时为 nil。
+    var measurement: FoodItemMeasurement?
 
     init(
         id: UUID = UUID(),
@@ -140,7 +142,8 @@ nonisolated struct MealFoodItem: Identifiable, Hashable, Sendable {
         confidence: Double? = nil,
         evidence: String? = nil,
         uncertainties: [String] = [],
-        isUserConfirmed: Bool = true
+        isUserConfirmed: Bool = true,
+        measurement: FoodItemMeasurement? = nil
     ) {
         self.id = id
         self.name = name
@@ -155,5 +158,6 @@ nonisolated struct MealFoodItem: Identifiable, Hashable, Sendable {
         self.evidence = evidence
         self.uncertainties = uncertainties
         self.isUserConfirmed = isUserConfirmed
+        self.measurement = measurement
     }
 }

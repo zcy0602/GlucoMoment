@@ -245,6 +245,10 @@ private struct MealFoodItemDetailCard: View {
           title: "脂肪", value: "\(item.fatGrams.formatted(.number.precision(.fractionLength(0))))g")
       }
 
+      if let measurement = item.measurement {
+        FoodMeasurementSummaryLabel(measurement: measurement)
+      }
+
       if let evidence = item.evidence, !evidence.isEmpty {
         Label(evidence, systemImage: "eye")
           .font(.footnote)

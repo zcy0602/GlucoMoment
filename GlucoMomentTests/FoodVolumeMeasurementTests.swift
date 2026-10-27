@@ -140,9 +140,12 @@ struct FoodVolumeMeasurementTests {
         #expect(result.notes.isEmpty)
     }
 
-    @Test("装满浅碗的体积与球冠公式一致")
-    func filledBowlVolume() throws {
-        let bowl = ContainerGeometry(type: .shallowBowl, center: .zero, rimRadius: 0.08, measuredRimHeight: 0.05)
+    @Test("装满的碗体积与幂函数内壁公式一致", arguments: [
+        (FoodContainerType.shallowBowl, ContainerGeometry.Preset.shallowBowlProfileExponent),
+        (FoodContainerType.deepBowl, ContainerGeometry.Preset.deepBowlProfileExponent)
+    ])
+    func filledBowlVolume(type: FoodContainerType, exponent: Float) throws {
+        let bowl = ContainerGeometry(type: type, center: .zero, rimRadius: 0.08, measuredRimHeight: 0.05)
         let map = makeHeightMap { point in simd_length(point) <= 0.08 ? 0.05 : 0 }
         let labels = makeLabels(map) { point in simd_length(point) <= 0.08 ? 0 : -1 }
 
@@ -155,12 +158,24 @@ struct FoodVolumeMeasurementTests {
             ).first
         )
 
-        // 球冠体积 V = πd(3a² + d²) / 6，a 为内半径，d 为内部深度。
+        // 内底 = 底厚 + d·(r/a)^p，装满时 V = πa²d·p/(p+2)，a 为内半径，d 为内部深度。
         let a = Double(bowl.innerRadius)
         let d = Double(bowl.interiorDepth)
-        let expected = Double.pi * d * (3 * a * a + d * d) / 6 * 1_000_000
+        let p = Double(exponent)
+        let expected = Double.pi * a * a * d * p / (p + 2) * 1_000_000
         #expect(abs(result.volumeMilliliters - expected) / expected < 0.03)
         #expect(result.notes.contains(.containerShapeAssumed))
+    }
+
+    @Test("同样碗口尺寸下深碗比浅碗装得更多")
+    func deepBowlHoldsMore() throws {
+        let shallow = ContainerGeometry(type: .shallowBowl, center: .zero, rimRadius: 0.07, measuredRimHeight: 0.06)
+        let deep = shallow.with(type: .deepBowl)
+        let point = SIMD2<Float>(0.03, 0)
+
+        let shallowBottom = try #require(shallow.innerBottomHeight(at: point))
+        let deepBottom = try #require(deep.innerBottomHeight(at: point))
+        #expect(deepBottom < shallowBottom)
     }
 
     @Test("以平盘为底时扣除盘心厚度")
@@ -365,7 +380,7 @@ struct FoodVolumeMeasurementTests {
 
     @Test("模型也没有给出密度时使用类别默认值")
     func densityFallsBackToCategory() {
-        let density = FoodDensityTable.resolve(name: "神秘汤品", category: .soup, modelRange: nil)
+        let density = FoodDensityTable.resolve(name: "未知菜品", category: .soup, modelRange: nil)
 
         #expect(density.source == .categoryDefault)
         #expect(density.nominal > 0.98)

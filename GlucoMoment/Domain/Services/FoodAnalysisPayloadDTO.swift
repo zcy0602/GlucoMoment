@@ -83,6 +83,8 @@ nonisolated struct FoodAnalysisItemDTO: Decodable, Sendable {
     let confidence: Double
     let evidence: String
     let uncertainties: [String]
+    /// LiDAR 两段式估算时，对应检测阶段的食物序号。
+    let itemIndex: Int?
 
     var result: FoodRecognitionItem {
         get throws {

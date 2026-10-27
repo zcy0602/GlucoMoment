@@ -93,7 +93,7 @@ nonisolated struct PlaneHeightMap: Sendable {
     /// 已观测格子占比。
     var observedFraction: Double {
         guard !heights.isEmpty else { return 0 }
-        return Double(heights.count { !$0.isNaN }) / Double(heights.count)
+        return Double(heights.count(where: { !$0.isNaN })) / Double(heights.count)
     }
 
     /// 用 3×3 邻域中值填补小空洞（邻域内至少 `minimumNeighbors` 个观测值）。

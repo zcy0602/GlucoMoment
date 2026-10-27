@@ -423,7 +423,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GlucoMoment/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄餐食照片并识别食物与营养信息";
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄餐食照片、通过 LiDAR 测量餐食尺寸，并识别食物与营养信息";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "用于读取健康 App 中最近 30 天的血糖，以及热量、碳水、蛋白质、总脂肪和膳食纤维记录";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "用于将你在稳糖食刻中记录的血糖和五项饮食营养写入健康 App，并在删除时保持同步";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -478,7 +478,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GlucoMoment/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄餐食照片并识别食物与营养信息";
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄餐食照片、通过 LiDAR 测量餐食尺寸，并识别食物与营养信息";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "用于读取健康 App 中最近 30 天的血糖，以及热量、碳水、蛋白质、总脂肪和膳食纤维记录";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "用于将你在稳糖食刻中记录的血糖和五项饮食营养写入健康 App，并在删除时保持同步";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
