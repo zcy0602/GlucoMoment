@@ -14,7 +14,7 @@ final class MealDetailViewModel {
     static let lookbackSeconds: TimeInterval = 60 * 60
     static let lookaheadSeconds: TimeInterval = 3 * 60 * 60
 
-    let meal: MealRecord
+    private(set) var meal: MealRecord
     private let glucoseRepository: any GlucoseRepository
     private let mealRepository: any MealRepository
     private let photoStore: any MealPhotoStoring
@@ -38,6 +38,16 @@ final class MealDetailViewModel {
 
     var canDelete: Bool {
         meal.source != .healthKit
+    }
+
+    /// 健康 App 导入的餐在本 App 里只读
+    var canEdit: Bool {
+        meal.source != .healthKit
+    }
+
+    /// 编辑保存后换成新记录；用餐时间可能变了，餐后血糖由详情页按新记录重新加载
+    func replace(with updated: MealRecord) {
+        meal = updated
     }
 
     func load() async {

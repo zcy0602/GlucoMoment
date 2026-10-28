@@ -6,23 +6,27 @@
 import Charts
 import SwiftUI
 
-/// 已保存餐食的详情。与识别结果页同一套版式，只读；多了一张「餐后血糖」卡，
+/// 已保存餐食的详情。与识别结果页同一套版式，点「编辑」可修改；多了一张「餐后血糖」卡，
 /// 用连续血糖数据画出这一餐前后的曲线——这是「看懂每一餐」最直接的证据
 struct MealDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: MealDetailViewModel
     @State private var isShowingBreakdown = false
     @State private var isConfirmingDelete = false
-    private let onDeleted: () -> Void
+    @State private var isEditing = false
+    private let dependencies: AppDependencies
+    private let onChanged: () -> Void
 
-    init(meal: MealRecord, dependencies: AppDependencies, onDeleted: @escaping () -> Void = {}) {
+    /// `onChanged` 在删除或编辑保存后调用，供列表刷新
+    init(meal: MealRecord, dependencies: AppDependencies, onChanged: @escaping () -> Void = {}) {
         _viewModel = State(initialValue: MealDetailViewModel(
             meal: meal,
             glucoseRepository: dependencies.glucoseRepository,
             mealRepository: dependencies.mealRepository,
             photoStore: dependencies.mealPhotoStore
         ))
-        self.onDeleted = onDeleted
+        self.dependencies = dependencies
+        self.onChanged = onChanged
     }
 
     private var meal: MealRecord { viewModel.meal }
@@ -88,6 +92,11 @@ struct MealDetailView: View {
         .navigationTitle(meal.mealPeriod.rawValue)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if viewModel.canEdit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("编辑") { isEditing = true }
+                }
+            }
             if viewModel.canDelete {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -108,7 +117,14 @@ struct MealDetailView: View {
         .sheet(isPresented: $isShowingBreakdown) {
             ScoreBreakdownView(score: meal.score, breakdown: meal.stableScore)
         }
-        .task(id: meal.id) {
+        .sheet(isPresented: $isEditing) {
+            MealEditView(meal: meal, photos: viewModel.photos, dependencies: dependencies) { updated in
+                viewModel.replace(with: updated)
+                onChanged()
+            }
+        }
+        // 编辑后用餐时间可能变了，按整条记录重新加载餐后血糖
+        .task(id: meal) {
             await viewModel.load()
         }
     }
@@ -195,7 +211,7 @@ struct MealDetailView: View {
     private func delete() {
         Task {
             guard await viewModel.delete() else { return }
-            onDeleted()
+            onChanged()
             dismiss()
         }
     }

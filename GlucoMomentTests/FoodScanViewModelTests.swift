@@ -121,6 +121,57 @@ struct FoodScanViewModelTests {
         #expect(!meal.suggestions.contains("模型建议"))
     }
 
+    @Test("编辑已保存的餐：沿用 id、照片和识别来源；缺类别时保留原分数")
+    func editsSavedMealInPlace() async throws {
+        let repository = RecordingMealRepository()
+        let original = MealRecord(
+            eatenAt: Date(timeIntervalSince1970: 1_800_000_000),
+            mealPeriod: .lunch,
+            title: "牛肉面",
+            source: .aiPhoto,
+            caloriesKcal: 600,
+            carbohydratesGrams: 80,
+            proteinGrams: 25,
+            fatGrams: 18,
+            fiberGrams: 3,
+            photoFilename: "meal.jpg",
+            aiProvider: "代理",
+            aiModel: "qwen",
+            promptVersion: "food-analysis-v2",
+            glucoseImpact: "高",
+            score: 42,
+            items: [
+                MealFoodItem(name: "牛肉面", portionDescription: "一碗", estimatedGrams: 500, caloriesKcal: 600, carbohydratesGrams: 80, proteinGrams: 25, fatGrams: 18, fiberGrams: 3)
+            ]
+        )
+        let viewModel = FoodScanViewModel(
+            editing: original,
+            photos: [try Self.jpeg(.red)],
+            analysisService: RecordingFoodAnalysisService(result: Self.result),
+            mealRepository: repository,
+            photoStore: InMemoryMealPhotoStore()
+        )
+        #expect(viewModel.phase == .needsReview)
+        #expect(!viewModel.hasUnsavedEdits)
+
+        viewModel.result?.items[0].carbohydratesGrams = 40
+        viewModel.selectedMealPeriod = .dinner
+        #expect(viewModel.hasUnsavedEdits)
+
+        await viewModel.save()
+
+        #expect(viewModel.phase == .saved)
+        let meal = try #require(repository.savedMeals.first)
+        #expect(meal.id == original.id)
+        #expect(meal.photoFilename == "meal.jpg")
+        #expect(meal.aiModel == "qwen")
+        #expect(meal.mealPeriod == .dinner)
+        #expect(meal.carbohydratesGrams == 40)
+        #expect(meal.items.first?.id == original.items.first?.id)
+        #expect(meal.score == 42)
+        #expect(viewModel.savedMeal == meal)
+    }
+
     @Test("修正带上描述和复核页的餐次，第一版不发照片；换照片后修正记录清空")
     func correctionRequestAndReset() async throws {
         let service = RecordingFoodAnalysisService(result: Self.result)
