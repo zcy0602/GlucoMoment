@@ -1,0 +1,63 @@
+//
+//  RedesignTheme.swift
+//  GlucoMoment
+//
+
+import SwiftUI
+
+/// 新版界面的语义色。参考「健康」App：每类数据固定一种颜色，用在卡片标题、图标和图表上，
+/// 让人不读文字也能分清在看什么。
+extension Color {
+    /// 血糖
+    static let glucoseTint = Color.brandTeal
+    /// 饮食
+    static let mealTint = Color(red: 0.20, green: 0.64, blue: 0.32)
+    /// AI 复盘与稳糖建议
+    static let insightTint = Color(red: 0.40, green: 0.36, blue: 0.88)
+    /// 图表里的目标范围底色
+    static let targetBandFill = Color.green.opacity(0.12)
+
+    /// 稳糖分的颜色。分界与基础分曲线一致：GL < 10 对应 85 分以上，GL 10～20 对应 70～85 分
+    static func stableScore(_ score: Int?) -> Color {
+        guard let score else { return .secondary }
+        switch score {
+        case 85...: return Color(red: 0.20, green: 0.68, blue: 0.36)
+        case 70..<85: return Color(red: 0.52, green: 0.72, blue: 0.18)
+        case 55..<70: return Color.brandAmber
+        default: return Color(red: 0.93, green: 0.42, blue: 0.27)
+        }
+    }
+}
+
+extension View {
+    /// 新版界面统一的卡片底：分组背景上的圆角块
+    func cardBackground(padding: CGFloat = 16) -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(padding)
+            .background(
+                Color(.secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+    }
+}
+
+/// 新版界面的数字格式。营养素取整，血糖保留一位小数
+nonisolated enum DisplayFormat {
+    static func whole(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0)))
+    }
+
+    static func glucose(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(1)))
+    }
+
+    /// 带正负号的血糖变化，例如「+2.4」
+    static func glucoseChange(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))
+    }
+
+    static func oneDecimal(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...1)))
+    }
+}

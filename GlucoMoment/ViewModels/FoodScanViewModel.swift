@@ -37,6 +37,13 @@ final class FoodScanViewModel {
     /// 本餐的一句话修正记录，随复核页「完成」写回；换照片或重新识别后清空
     var correctionHistory: [FoodCorrectionTurn] = []
 
+    /// 正在编辑的已保存餐食；为 nil 时是记录新的一餐
+    private(set) var editingMeal: MealRecord?
+    /// 编辑开始时的识别结果，用来判断有没有未保存的修改
+    private var originalResult: FoodRecognitionResult?
+    /// 编辑保存成功后的记录，供详情页刷新
+    private(set) var savedMeal: MealRecord?
+
     /// 第一版修正只发文字；修正接口已支持附带照片，改为 true 即把本餐照片一并发送
     static let sendsPhotosWithCorrection = false
 
@@ -51,6 +58,44 @@ final class FoodScanViewModel {
         self.photoStore = photoStore
         selectedMealPeriod = MealPeriod.inferred(for: referenceDate)
         eatenAt = referenceDate
+    }
+
+    /// 编辑一条已保存的餐食：直接进入结果页，照片沿用已保存的版本，不能重新识别
+    convenience init(
+        editing meal: MealRecord,
+        photos: [Data],
+        analysisService: any FoodAnalysisService,
+        mealRepository: any MealRepository,
+        photoStore: any MealPhotoStoring
+    ) {
+        self.init(
+            analysisService: analysisService,
+            mealRepository: mealRepository,
+            photoStore: photoStore,
+            referenceDate: meal.eatenAt
+        )
+        let result = FoodRecognitionResult(editing: meal)
+        editingMeal = meal
+        originalResult = result
+        self.result = result
+        selectedPhotos = photos
+        selectedMealPeriod = meal.mealPeriod
+        userFoodContext = meal.userFoodContext ?? ""
+        userNote = meal.note ?? ""
+        phase = .needsReview
+    }
+
+    var isEditingSavedMeal: Bool {
+        editingMeal != nil
+    }
+
+    /// 编辑模式下是否改过内容；关闭前据此决定要不要确认
+    var hasUnsavedEdits: Bool {
+        guard let editingMeal else { return result != nil }
+        return result != originalResult
+            || eatenAt != editingMeal.eatenAt
+            || selectedMealPeriod != editingMeal.mealPeriod
+            || !correctionHistory.isEmpty
     }
 
     var scanStateText: String {
@@ -198,6 +243,10 @@ final class FoodScanViewModel {
 
     func save() async {
         guard let result else { return }
+        if let editingMeal {
+            await saveEdits(to: editingMeal, result: result)
+            return
+        }
         guard !selectedPhotos.isEmpty else {
             phase = .failed("找不到待保存的餐食照片。")
             return
@@ -210,24 +259,7 @@ final class FoodScanViewModel {
         do {
             let photos = try await preparePhotosIfNeeded()
             savedFilename = try await photoStore.saveJPEGs(photos, mealID: mealID)
-            let items = result.items.map { item in
-                MealFoodItem(
-                    id: item.id,
-                    name: item.name,
-                    portionDescription: item.portionDescription,
-                    estimatedGrams: item.estimatedGrams,
-                    caloriesKcal: item.caloriesKcal,
-                    carbohydratesGrams: item.carbohydratesGrams,
-                    proteinGrams: item.proteinGrams,
-                    fatGrams: item.fatGrams,
-                    fiberGrams: item.fiberGrams,
-                    confidence: item.confidence,
-                    evidence: item.evidence,
-                    uncertainties: item.uncertainties,
-                    isUserConfirmed: true,
-                    foodCategory: item.foodCategory
-                )
-            }
+            let items = Self.mealItems(from: result)
             let meal = MealRecord(
                 id: mealID,
                 eatenAt: eatenAt,
@@ -265,6 +297,63 @@ final class FoodScanViewModel {
                 await photoStore.delete(filename: savedFilename)
             }
             phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// 就地更新已保存的餐食：沿用原 id、照片和识别来源，只替换内容
+    private func saveEdits(to meal: MealRecord, result: FoodRecognitionResult) async {
+        phase = .saving
+        var updated = meal
+        updated.eatenAt = eatenAt
+        updated.mealPeriod = selectedMealPeriod
+        updated.title = result.name
+        updated.userFoodContext = userFoodContext.normalizedOptional
+        updated.note = userNote.normalizedOptional
+        updated.caloriesKcal = result.caloriesKcal
+        updated.carbohydratesGrams = result.carbohydratesGrams
+        updated.proteinGrams = result.proteinGrams
+        updated.fatGrams = result.fatGrams
+        updated.fiberGrams = result.fiberGrams
+        // 条目缺少类别、无法按公式计算时，保留原来保存的分数，而不是写入占位值
+        updated.score = result.stableScore?.score ?? meal.score
+        updated.glucoseImpact = result.stableScore?.glucoseImpact ?? meal.glucoseImpact
+        updated.suggestions = result.effectiveSuggestions
+        updated.followUpQuestions = result.followUpQuestions
+        updated.uncertainties = result.uncertainties
+        updated.items = Self.mealItems(from: result)
+
+        do {
+            try await mealRepository.save(updated)
+            editingMeal = updated
+            originalResult = result
+            correctionHistory = []
+            savedMeal = updated
+            phase = .saved
+        } catch is CancellationError {
+            phase = .needsReview
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    private static func mealItems(from result: FoodRecognitionResult) -> [MealFoodItem] {
+        result.items.map { item in
+            MealFoodItem(
+                id: item.id,
+                name: item.name,
+                portionDescription: item.portionDescription,
+                estimatedGrams: item.estimatedGrams,
+                caloriesKcal: item.caloriesKcal,
+                carbohydratesGrams: item.carbohydratesGrams,
+                proteinGrams: item.proteinGrams,
+                fatGrams: item.fatGrams,
+                fiberGrams: item.fiberGrams,
+                confidence: item.confidence,
+                evidence: item.evidence,
+                uncertainties: item.uncertainties,
+                isUserConfirmed: true,
+                foodCategory: item.foodCategory
+            )
         }
     }
 
@@ -311,6 +400,41 @@ final class FoodScanViewModel {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+}
+
+private extension FoodRecognitionResult {
+    /// 把已保存的餐食还原成可编辑的识别结果；缺失的字段用中性值占位，保存时不会写回
+    init(editing meal: MealRecord) {
+        self.init(
+            name: meal.title,
+            confidence: meal.analysisConfidence ?? 1,
+            glucoseImpact: meal.glucoseImpact ?? "",
+            score: meal.score ?? 0,
+            items: meal.items.map { item in
+                FoodRecognitionItem(
+                    id: item.id,
+                    name: item.name,
+                    portionDescription: item.portionDescription,
+                    estimatedGrams: item.estimatedGrams,
+                    caloriesKcal: item.caloriesKcal,
+                    carbohydratesGrams: item.carbohydratesGrams,
+                    proteinGrams: item.proteinGrams,
+                    fatGrams: item.fatGrams,
+                    fiberGrams: item.fiberGrams,
+                    confidence: item.confidence ?? 1,
+                    evidence: item.evidence ?? "",
+                    uncertainties: item.uncertainties,
+                    foodCategory: item.foodCategory
+                )
+            },
+            suggestions: meal.suggestions,
+            followUpQuestions: meal.followUpQuestions,
+            uncertainties: meal.uncertainties,
+            provider: meal.aiProvider ?? "",
+            model: meal.aiModel ?? "",
+            promptVersion: meal.promptVersion ?? ""
+        )
     }
 }
 
