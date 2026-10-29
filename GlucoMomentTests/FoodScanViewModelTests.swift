@@ -233,6 +233,31 @@ struct FoodScanViewModelTests {
         #expect(!viewModel.isEatenAtFromPhoto)
     }
 
+    @Test("改用餐时间会重新推断餐次，手动选过餐次后不再推断；改时间后不再提示取自照片")
+    func changingEatenAtReinfersPeriod() throws {
+        let now = Self.date("2026-10-26T06:00:00Z")
+        let viewModel = makeViewModel()
+        viewModel.selectPhotos(
+            [try Self.jpeg(.red, exifDate: "2026:10:26 12:30:00", offset: "+08:00")],
+            referenceDate: now
+        )
+        #expect(viewModel.isEatenAtFromPhoto)
+
+        let evening = Self.date("2026-10-26T11:30:00Z")
+        viewModel.changeEatenAt(evening)
+        #expect(viewModel.selectedMealPeriod == MealPeriod.inferred(for: evening))
+        #expect(!viewModel.isEatenAtFromPhoto)
+
+        viewModel.pickMealPeriod(.snack)
+        viewModel.changeEatenAt(Self.date("2026-10-26T00:30:00Z"))
+        #expect(viewModel.selectedMealPeriod == .snack)
+
+        // 重新选照片开始新的一餐，恢复自动推断
+        viewModel.selectPhotos([try Self.jpeg(.red)], referenceDate: now)
+        viewModel.changeEatenAt(evening)
+        #expect(viewModel.selectedMealPeriod == MealPeriod.inferred(for: evening))
+    }
+
     @Test("上传前的压缩会去掉 EXIF")
     func preparedPhotoHasNoCaptureDate() async throws {
         let photo = try Self.jpeg(.red, exifDate: "2026:10:26 12:30:00", offset: "+08:00")

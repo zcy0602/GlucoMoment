@@ -20,13 +20,32 @@ struct SettingsView: View {
         Form {
             Section {
                 HStack(spacing: 14) {
-                    IconBadge(systemImage: "heart.fill", tint: .pink)
+                    // Apple 官方健康 App 图标（developer.apple.com 下载），旁边要写出 Apple 健康（HIG）。
+                    // 图标是白底，参照系统「设置」加一圈细描边，否则和白色单元格融在一起
+                    Image("Icon - Apple Health")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 30, height: 30)
+                        .clipShape(RoundedRectangle(cornerRadius: 30 * 0.27, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 30 * 0.27, style: .continuous)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("健康 App")
-                        Text(healthKit.statusText)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
+                        Text("Apple 健康")
+                        // 同步时间和条数各占一行，且每行强制不换行：放不下时略微缩小字号，避免在数字和量词中间断开
+                        Group {
+                            Text(healthKit.statusHeadline)
+                            if let syncedCountText = healthKit.syncedCountText {
+                                Text(syncedCountText)
+                            }
+                        }
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
                     }
                     Spacer()
                     if healthKit.isSyncing {

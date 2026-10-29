@@ -9,6 +9,8 @@ import HealthKit
 struct HealthKitGlucoseSnapshot: Sendable {
     let externalReadings: [GlucoseReading]
     let ownedLocalRecordIDs: Set<UUID>
+    /// 这次查询覆盖的起点。对账只处理这之后的记录，更早的已同步数据留在本地，历史会逐渐积累
+    var coveredStart: Date = .distantPast
 }
 
 struct HealthKitMealImport: Sendable {
@@ -19,6 +21,8 @@ struct HealthKitMealImport: Sendable {
 struct HealthKitMealSnapshot: Sendable {
     let externalMeals: [HealthKitMealImport]
     let ownedLocalRecordIDs: Set<UUID>
+    /// 这次查询覆盖的起点，含义同 HealthKitGlucoseSnapshot.coveredStart
+    var coveredStart: Date = .distantPast
 }
 
 @MainActor
@@ -99,8 +103,9 @@ final class HealthKitStoreClient: HealthKitStoreClientProtocol {
 
     func glucoseSnapshot() async throws -> HealthKitGlucoseSnapshot {
         let type = try quantityType(.bloodGlucose)
+        let start = recentSamplesStart
         let descriptor = HKSampleQueryDescriptor(
-            predicates: [.quantitySample(type: type, predicate: recentSamplesPredicate)],
+            predicates: [.quantitySample(type: type, predicate: recentSamplesPredicate(since: start))],
             sortDescriptors: [SortDescriptor(\HKQuantitySample.startDate)]
         )
         let samples = try await descriptor.result(for: healthStore)
@@ -117,14 +122,16 @@ final class HealthKitStoreClient: HealthKitStoreClientProtocol {
 
         return HealthKitGlucoseSnapshot(
             externalReadings: externalReadings,
-            ownedLocalRecordIDs: ownedLocalRecordIDs
+            ownedLocalRecordIDs: ownedLocalRecordIDs,
+            coveredStart: start
         )
     }
 
     func mealSnapshot() async throws -> HealthKitMealSnapshot {
         let type = try foodCorrelationType()
+        let start = recentSamplesStart
         let descriptor = HKSampleQueryDescriptor(
-            predicates: [.correlation(type: type, predicate: recentSamplesPredicate)],
+            predicates: [.correlation(type: type, predicate: recentSamplesPredicate(since: start))],
             sortDescriptors: [SortDescriptor(\HKCorrelation.startDate)]
         )
         let correlations = try await descriptor.result(for: healthStore)
@@ -141,7 +148,8 @@ final class HealthKitStoreClient: HealthKitStoreClientProtocol {
 
         return HealthKitMealSnapshot(
             externalMeals: externalMeals,
-            ownedLocalRecordIDs: ownedLocalRecordIDs
+            ownedLocalRecordIDs: ownedLocalRecordIDs,
+            coveredStart: start
         )
     }
 
@@ -215,13 +223,16 @@ final class HealthKitStoreClient: HealthKitStoreClientProtocol {
         )
     }
 
-    private var recentSamplesPredicate: NSPredicate {
-        let start = Calendar.current.date(
+    private var recentSamplesStart: Date {
+        Calendar.current.date(
             byAdding: .day,
             value: -historyDayCount,
             to: .now
         ) ?? .distantPast
-        return HKQuery.predicateForSamples(
+    }
+
+    private func recentSamplesPredicate(since start: Date) -> NSPredicate {
+        HKQuery.predicateForSamples(
             withStart: start,
             end: nil,
             options: .strictStartDate

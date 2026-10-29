@@ -102,10 +102,11 @@ final class SwiftDataMealRepository: MealRepository {
     try modelContext.save()
   }
 
-  func replaceHealthKitMeals(with imports: [HealthKitMealImport]) throws {
+  /// 用 HealthKit 快照对账外部餐食。只删除 `since` 之后、这次没查到的记录，更早的原样保留
+  func replaceHealthKitMeals(with imports: [HealthKitMealImport], since start: Date = .distantPast) throws {
     let sourceRawValue = MealSource.healthKit.rawValue
     let predicate = #Predicate<MealRecordEntity> {
-      $0.sourceRawValue == sourceRawValue
+      $0.sourceRawValue == sourceRawValue && $0.eatenAt >= start
     }
     let existing = try modelContext.fetch(
       FetchDescriptor<MealRecordEntity>(predicate: predicate)

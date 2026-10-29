@@ -51,21 +51,19 @@ struct MealsDiaryView: View {
                     daySummary
                 }
 
-                ForEach(viewModel.sections) { section in
-                    Section(section.period.rawValue) {
-                        ForEach(section.meals) { meal in
-                            NavigationLink {
-                                MealDetailView(meal: meal, dependencies: dependencies) {
-                                    viewModel.load()
-                                }
-                            } label: {
-                                MealListRow(meal: meal, photoStore: dependencies.mealPhotoStore)
+                Section {
+                    ForEach(viewModel.meals) { meal in
+                        NavigationLink {
+                            MealDetailView(meal: meal, dependencies: dependencies) {
+                                viewModel.load()
                             }
-                            .swipeActions {
-                                if meal.source != .healthKit {
-                                    Button("删除", systemImage: "trash", role: .destructive) {
-                                        Task { await viewModel.delete(meal) }
-                                    }
+                        } label: {
+                            MealListRow(meal: meal, photoStore: dependencies.mealPhotoStore)
+                        }
+                        .swipeActions {
+                            if meal.source != .healthKit {
+                                Button("删除", systemImage: "trash", role: .destructive) {
+                                    Task { await viewModel.delete(meal) }
                                 }
                             }
                         }
@@ -90,7 +88,10 @@ struct MealsDiaryView: View {
             viewModel.load()
             viewModel.select(viewModel.today)
         }
-        .refreshable { viewModel.load() }
+        .refreshable {
+            await dependencies.healthKitCoordinator.refresh()
+            viewModel.load()
+        }
         .task(id: healthDataRevision) { viewModel.load() }
     }
 
@@ -100,39 +101,50 @@ struct MealsDiaryView: View {
         .weekday(.wide)
         .locale(GlucoMomentDateStyle.mainlandChinaLocale)
 
+    /// 三栏的数值区等高（与圆环同高）并垂直居中，下方标签因此落在同一条线上
+    private static let summaryValueHeight: CGFloat = 44
+
     private var daySummary: some View {
         HStack(spacing: 0) {
-            summaryValue(DisplayFormat.whole(viewModel.totalCalories), unit: "千卡", title: "热量")
-            Divider().frame(height: 36)
-            summaryValue(DisplayFormat.whole(viewModel.totalCarbohydrates), unit: "克", title: "碳水", tint: .mealTint)
-            Divider().frame(height: 36)
-            VStack(spacing: 4) {
-                ScoreRing(score: viewModel.averageScore, diameter: 40)
-                Text("平均稳糖分")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            summaryColumn(title: "热量") {
+                summaryNumber(DisplayFormat.whole(viewModel.totalCalories), unit: "千卡")
             }
-            .frame(maxWidth: .infinity)
+            Divider().frame(height: 40)
+            summaryColumn(title: "碳水") {
+                summaryNumber(DisplayFormat.whole(viewModel.totalCarbohydrates), unit: "克", tint: .mealTint)
+            }
+            Divider().frame(height: 40)
+            summaryColumn(title: "平均稳糖分") {
+                ScoreRing(score: viewModel.averageScore, diameter: Self.summaryValueHeight)
+            }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
     }
 
-    private func summaryValue(_ value: String, unit: String, title: String, tint: Color = .primary) -> some View {
-        VStack(spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(.system(.title2, design: .rounded, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(tint)
-                Text(unit)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
+    private func summaryColumn<Value: View>(title: String, @ViewBuilder value: () -> Value) -> some View {
+        VStack(spacing: 6) {
+            value()
+                .frame(height: Self.summaryValueHeight)
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func summaryNumber(_ value: String, unit: String, tint: Color = .primary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Text(value)
+                .font(.system(.title2, design: .rounded, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+            Text(unit)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .padding(.horizontal, 4)
     }
 
     private var emptyState: some View {
@@ -171,19 +183,33 @@ struct MealListRow: View {
             MealPhotoThumbnail(filename: meal.photoFilename, photoStore: photoStore, size: 56)
 
             VStack(alignment: .leading, spacing: 4) {
+                // 标题不限行数，长名称自动换行显示完整
                 Text(meal.title)
                     .font(.body.weight(.semibold))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    capsule(meal.mealPeriod.rawValue, tint: .mealTint)
+                    Text(meal.eatenAt, format: GlucoMomentDateStyle.time)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                // 营养用灰色胶囊，和带颜色的餐次区分主次
+                HStack(spacing: 6) {
+                    capsule("\(DisplayFormat.whole(meal.caloriesKcal)) 千卡", tint: .secondary)
+                    capsule("碳水 \(DisplayFormat.whole(meal.carbohydratesGrams)) 克", tint: .secondary)
+                }
             }
 
             Spacer(minLength: 8)
 
             if let score = meal.score {
-                ScoreRing(score: score, diameter: 38)
+                VStack(spacing: 6) {
+                    ScoreRing(score: score, diameter: 38)
+                    Text("稳糖分")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
             } else if meal.source == .healthKit {
                 Image(systemName: "heart.fill")
                     .foregroundStyle(.pink)
@@ -193,9 +219,15 @@ struct MealListRow: View {
         .padding(.vertical, 2)
     }
 
-    private var subtitle: String {
-        let time = meal.eatenAt.formatted(GlucoMomentDateStyle.time)
-        return "\(time) · \(DisplayFormat.whole(meal.caloriesKcal)) 千卡 · 碳水 \(DisplayFormat.whole(meal.carbohydratesGrams)) 克"
+    private func capsule(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.15), in: Capsule())
     }
 }
 

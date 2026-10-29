@@ -240,6 +240,7 @@ private struct MealComposeContent: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 photoSection
+                timeSection
                 descriptionSection
             }
             .padding(20)
@@ -323,6 +324,15 @@ private struct MealComposeContent: View {
                     .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
                     .foregroundStyle(.tertiary)
             )
+        }
+    }
+
+    /// 餐次和时间在识别前就能确认；餐次会随照片一起发给识别服务
+    private var timeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("什么时候吃的")
+                .font(.headline)
+            MealTimeFields(viewModel: viewModel)
         }
     }
 

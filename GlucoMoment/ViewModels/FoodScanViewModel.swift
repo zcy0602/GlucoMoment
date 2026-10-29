@@ -31,8 +31,10 @@ final class FoodScanViewModel {
     var result: FoodRecognitionResult?
     var selectedMealPeriod: MealPeriod
     var eatenAt = Date.now
-    /// `eatenAt` 是否取自照片的拍摄时间（而不是选图时的当前时间）
-    private(set) var isEatenAtFromPhoto = false
+    /// 照片的拍摄时间；读不到或不合理时为 nil
+    private(set) var photoCaptureDate: Date?
+    /// 用户是否手动选过餐次；选过之后改用餐时间不再自动推断餐次
+    private var hasPickedMealPeriod = false
     var userNote = ""
     /// 本餐的一句话修正记录，随复核页「完成」写回；换照片或重新识别后清空
     var correctionHistory: [FoodCorrectionTurn] = []
@@ -80,9 +82,29 @@ final class FoodScanViewModel {
         self.result = result
         selectedPhotos = photos
         selectedMealPeriod = meal.mealPeriod
+        hasPickedMealPeriod = true
         userFoodContext = meal.userFoodContext ?? ""
         userNote = meal.note ?? ""
         phase = .needsReview
+    }
+
+    /// `eatenAt` 是否仍是照片的拍摄时间；用户改过时间后为 false
+    var isEatenAtFromPhoto: Bool {
+        photoCaptureDate != nil && photoCaptureDate == eatenAt
+    }
+
+    /// 用户手动选择餐次
+    func pickMealPeriod(_ period: MealPeriod) {
+        selectedMealPeriod = period
+        hasPickedMealPeriod = true
+    }
+
+    /// 用户手动修改用餐时间；没手动选过餐次时，按新时间重新推断
+    func changeEatenAt(_ date: Date) {
+        eatenAt = date
+        if !hasPickedMealPeriod {
+            selectedMealPeriod = MealPeriod.inferred(for: date)
+        }
     }
 
     var isEditingSavedMeal: Bool {
@@ -153,7 +175,8 @@ final class FoodScanViewModel {
         let mealDate = captureDate ?? referenceDate
         selectedMealPeriod = MealPeriod.inferred(for: mealDate)
         eatenAt = mealDate
-        isEatenAtFromPhoto = captureDate != nil
+        photoCaptureDate = captureDate
+        hasPickedMealPeriod = false
         userFoodContext = ""
         userNote = ""
         result = nil

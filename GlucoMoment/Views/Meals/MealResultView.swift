@@ -20,9 +20,8 @@ struct MealResultContent: View {
     @State private var isShowingBreakdown = false
     /// 正在回答 AI 的哪个问题；发送时会带上问题，帮模型理解
     @State private var answeringQuestion: String?
-    /// 取自照片的用餐时间；用户改了时间后不再提示
-    @State private var photoCaptureDate: Date?
     @FocusState private var isCorrectionFocused: Bool
+    @FocusState private var isTitleFocused: Bool
 
     private var isCorrecting: Bool { correctionTask != nil }
 
@@ -93,11 +92,6 @@ struct MealResultContent: View {
             .sheet(isPresented: $isShowingBreakdown) {
                 ScoreBreakdownView(score: result.effectiveScore, breakdown: result.stableScore)
             }
-            .onAppear {
-                if photoCaptureDate == nil, viewModel.isEatenAtFromPhoto {
-                    photoCaptureDate = viewModel.eatenAt
-                }
-            }
             .onDisappear {
                 correctionTask?.cancel()
             }
@@ -108,30 +102,27 @@ struct MealResultContent: View {
 
     private var titleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("给这一餐起个名字", text: nameBinding, axis: .vertical)
-                .font(.title2.weight(.bold))
-                .lineLimit(1...2)
+            // 标题可直接改：平时显示铅笔，点它聚焦输入框；编辑时换成勾，点它收起键盘。
+            // 名称是实时写回的，勾只负责结束编辑
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                TextField("给这一餐起个名字", text: nameBinding, axis: .vertical)
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1...2)
+                    .focused($isTitleFocused)
 
-            HStack(spacing: 8) {
-                Picker("餐次", selection: $viewModel.selectedMealPeriod) {
-                    ForEach(MealPeriod.allCases) { period in
-                        Text(period.rawValue).tag(period)
-                    }
+                Button(
+                    isTitleFocused ? "完成修改名称" : "修改名称",
+                    systemImage: isTitleFocused ? "checkmark.circle.fill" : "pencil"
+                ) {
+                    isTitleFocused.toggle()
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
-
-                DatePicker("用餐时间", selection: $viewModel.eatenAt, in: ...Date.now)
-                    .labelsHidden()
-                    .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
+                .labelStyle(.iconOnly)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isTitleFocused ? Color.brandTeal : .secondary)
+                .contentTransition(.symbolEffect(.replace))
             }
 
-            if let photoCaptureDate, photoCaptureDate == viewModel.eatenAt {
-                Label("时间取自照片的拍摄时间", systemImage: "camera")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            MealTimeFields(viewModel: viewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
@@ -388,6 +379,53 @@ struct MealResultContent: View {
             if !viewModel.correctionHistory.isEmpty {
                 viewModel.correctionHistory.removeLast()
             }
+        }
+    }
+}
+
+/// 餐次与用餐时间。新的一餐的补充说明页和结果页共用，绑定同一个 ViewModel，
+/// 所以在哪一页改都会同步；时间取自照片时显示提示
+struct MealTimeFields: View {
+    @Bindable var viewModel: FoodScanViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Picker("餐次", selection: periodBinding) {
+                    ForEach(MealPeriod.allCases) { period in
+                        Text(period.rawValue).tag(period)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+
+                DatePicker("用餐时间", selection: eatenAtBinding, in: ...Date.now)
+                    .labelsHidden()
+                    .environment(\.locale, GlucoMomentDateStyle.mainlandChinaLocale)
+            }
+
+            if viewModel.isEatenAtFromPhoto {
+                Label("时间取自照片的拍摄时间", systemImage: "camera")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var periodBinding: Binding<MealPeriod> {
+        Binding {
+            viewModel.selectedMealPeriod
+        } set: { period in
+            viewModel.pickMealPeriod(period)
+        }
+    }
+
+    private var eatenAtBinding: Binding<Date> {
+        Binding {
+            viewModel.eatenAt
+        } set: { date in
+            viewModel.changeEatenAt(date)
         }
     }
 }
