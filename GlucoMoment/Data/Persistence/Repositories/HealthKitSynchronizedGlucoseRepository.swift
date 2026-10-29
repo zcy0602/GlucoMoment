@@ -88,14 +88,20 @@ final class HealthKitSynchronizedGlucoseRepository: GlucoseRepository {
         let snapshot = try await healthKit.glucoseSnapshot()
         let refreshedStates = try syncStates.states(kind: .glucose)
         for state in refreshedStates where state.status == .synced {
-            guard localReadings.contains(where: { $0.id == state.recordID }) else { continue }
+            // 只核对查询范围内的记录，范围外的查不到不代表在健康里被删了
+            guard localReadings.contains(where: {
+                $0.id == state.recordID && $0.measuredAt >= snapshot.coveredStart
+            }) else { continue }
             if !snapshot.ownedLocalRecordIDs.contains(state.recordID) {
                 try local.delete(id: state.recordID)
                 try syncStates.delete(recordID: state.recordID, kind: .glucose)
             }
         }
 
-        try local.replaceHealthKitReadings(with: snapshot.externalReadings)
+        try local.replaceHealthKitReadings(
+            with: snapshot.externalReadings,
+            since: snapshot.coveredStart
+        )
         return snapshot.externalReadings.count + snapshot.ownedLocalRecordIDs.count
     }
 

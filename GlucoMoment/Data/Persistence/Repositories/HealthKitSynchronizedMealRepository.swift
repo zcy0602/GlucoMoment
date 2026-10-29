@@ -81,14 +81,20 @@ final class HealthKitSynchronizedMealRepository: MealRepository {
         let snapshot = try await healthKit.mealSnapshot()
         let refreshedStates = try syncStates.states(kind: .meal)
         for state in refreshedStates where state.status == .synced {
-            guard localMeals.contains(where: { $0.id == state.recordID }) else { continue }
+            // 只核对查询范围内的记录，范围外的查不到不代表在健康里被删了
+            guard localMeals.contains(where: {
+                $0.id == state.recordID && $0.eatenAt >= snapshot.coveredStart
+            }) else { continue }
             if !snapshot.ownedLocalRecordIDs.contains(state.recordID) {
                 try local.delete(id: state.recordID)
                 try syncStates.delete(recordID: state.recordID, kind: .meal)
             }
         }
 
-        try local.replaceHealthKitMeals(with: snapshot.externalMeals)
+        try local.replaceHealthKitMeals(
+            with: snapshot.externalMeals,
+            since: snapshot.coveredStart
+        )
         return snapshot.externalMeals.count + snapshot.ownedLocalRecordIDs.count
     }
 

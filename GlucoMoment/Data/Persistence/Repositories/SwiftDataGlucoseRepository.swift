@@ -81,9 +81,15 @@ final class SwiftDataGlucoseRepository: GlucoseRepository {
     }
 
     func replaceHealthKitReadings(with readings: [GlucoseReading]) throws {
+        try replaceHealthKitReadings(with: readings, since: .distantPast)
+    }
+
+    /// 用 HealthKit 快照对账外部血糖。只删除 `since` 之后、这次没查到的记录；
+    /// 更早的记录不在查询范围内，原样保留，让历史随同步逐渐积累
+    func replaceHealthKitReadings(with readings: [GlucoseReading], since start: Date) throws {
         let healthKitSource = GlucoseSource.healthKit.rawValue
         let predicate = #Predicate<GlucoseSampleEntity> {
-            $0.sourceRawValue == healthKitSource
+            $0.sourceRawValue == healthKitSource && $0.measuredAt >= start
         }
         let existingEntities = try modelContext.fetch(
             FetchDescriptor<GlucoseSampleEntity>(predicate: predicate)

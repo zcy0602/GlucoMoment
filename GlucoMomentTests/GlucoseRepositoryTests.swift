@@ -132,6 +132,41 @@ extension PersistenceRepositoryTests {
         #expect(!fetched.contains(where: { $0.id == removedHealthKitID }))
     }
 
+    @Test("HealthKit 对账只删除查询范围内的外部样本，范围外的历史保留")
+    func reconcilesOnlyWithinQueriedWindow() throws {
+        let (_, repository) = try makeRepository()
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let olderID = UUID()
+        let removedID = UUID()
+
+        func healthKitReading(_ id: UUID, at date: Date) -> GlucoseReading {
+            GlucoseReading(
+                id: id,
+                measuredAt: date,
+                value: 6.0,
+                source: .healthKit,
+                externalIdentifier: id.uuidString
+            )
+        }
+
+        try repository.replaceHealthKitReadings(with: [
+            healthKitReading(olderID, at: windowStart.addingTimeInterval(-3600)),
+            healthKitReading(removedID, at: windowStart.addingTimeInterval(3600))
+        ])
+
+        // 新快照只覆盖 windowStart 之后，且两条都没查到
+        try repository.replaceHealthKitReadings(with: [], since: windowStart)
+
+        let fetched = try repository.readings(
+            in: DateInterval(
+                start: windowStart.addingTimeInterval(-7200),
+                end: windowStart.addingTimeInterval(7200)
+            )
+        )
+
+        #expect(fetched.map(\.id) == [olderID])
+    }
+
     private func makeRepository() throws -> (ModelContainer, SwiftDataGlucoseRepository) {
         let container = PersistenceRepositoryTests.container
         try PersistenceRepositoryTests.resetStore()
