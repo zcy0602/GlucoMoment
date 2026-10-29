@@ -68,6 +68,13 @@ enum DemoDataProvider {
             text: "定时定量，细嚼慢咽；口味清淡、少油少盐，不喝含糖饮料。",
             tags: ["定时定量", "清淡少油盐", "无糖饮品"],
             guidelines: [.regularMeals, .lessSugarOilSalt]
+        ),
+        .snack: MealGuidance(
+            period: .snack,
+            title: "加餐建议",
+            text: "定时定量；可以选牛奶、无糖酸奶或豆浆，不喝含糖饮料。",
+            tags: ["定时定量", "有奶有豆", "无糖饮品"],
+            guidelines: [.regularMeals, .dairyAndSoyDaily, .lessSugarOilSalt]
         )
     ]
 

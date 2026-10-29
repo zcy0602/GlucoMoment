@@ -262,6 +262,7 @@ nonisolated enum MealReviewPayloadBuilder {
         case .breakfast: "breakfast"
         case .lunch: "lunch"
         case .dinner: "dinner"
+        case .snack: "snack"
         }
     }
 

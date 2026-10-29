@@ -33,6 +33,13 @@ struct MealPeriodTests {
         #expect(MealPeriod.inferred(for: date(hour: 23, minute: 59), calendar: calendar) == .dinner)
     }
 
+    @Test("任何时间都不会推断为加餐")
+    func neverInfersSnack() {
+        for hour in 0..<24 {
+            #expect(MealPeriod.inferred(for: date(hour: hour), calendar: calendar) != .snack)
+        }
+    }
+
     private func date(hour: Int, minute: Int = 0) -> Date {
         calendar.date(
             from: DateComponents(year: 2026, month: 8, day: 9, hour: hour, minute: minute)
