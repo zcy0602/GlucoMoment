@@ -12,6 +12,7 @@ struct ContentView: View {
     let dependencies: AppDependencies
     @State private var selectedTab: AppTab = .today
     @State private var healthKitCoordinator: HealthKitCoordinator
+    @Environment(\.scenePhase) private var scenePhase
     /// 新版界面开关，在两版的设置页里都能切换
     @AppStorage(InterfacePreference.redesignKey) private var usesRedesign = true
 
@@ -32,6 +33,10 @@ struct ContentView: View {
             }
         }
         .task { await healthKitCoordinator.handleLaunch() }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            Task { await healthKitCoordinator.handleBecameActive() }
+        }
         .sheet(item: $healthKitCoordinator.presentedSheet) { sheet in
             switch sheet {
             case .introduction:

@@ -90,7 +90,10 @@ struct MealsDiaryView: View {
             viewModel.load()
             viewModel.select(viewModel.today)
         }
-        .refreshable { viewModel.load() }
+        .refreshable {
+            await dependencies.healthKitCoordinator.refresh()
+            viewModel.load()
+        }
         .task(id: healthDataRevision) { viewModel.load() }
     }
 

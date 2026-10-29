@@ -98,6 +98,7 @@ struct TrendsView: View {
             Task { await reviewViewModel.load() }
         }
         .refreshable {
+            await dependencies.healthKitCoordinator.refresh()
             viewModel.load()
             await reviewViewModel.load()
         }

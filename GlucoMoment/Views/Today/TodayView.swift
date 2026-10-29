@@ -89,6 +89,7 @@ struct TodayView: View {
             .tint(Color.brandTeal)
         }
         .refreshable {
+            await dependencies.healthKitCoordinator.refresh()
             reload()
             await reviewViewModel.load()
         }

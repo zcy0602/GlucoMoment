@@ -26,6 +26,8 @@ final class HealthKitCoordinator {
     }
 
     private static let currentAuthorizationVersion = 2
+    /// 回到前台时，距上次同步不足这么久就跳过，避免频繁切换 App 时反复读取 30 天的数据
+    private static let foregroundSyncInterval: TimeInterval = 2 * 60
 
     private let service: any HealthKitSynchronizing
     private let defaults: UserDefaults
@@ -62,17 +64,35 @@ final class HealthKitCoordinator {
         service.isHealthDataAvailable
     }
 
+    /// 旧版设置页使用的整句状态
     var statusText: String {
+        guard let syncedCountText else {
+            return statusHeadline
+        }
+        return "\(statusHeadline)，\(syncedCountText)"
+    }
+
+    /// 同步状态的第一句：正在同步、不支持、上次同步时间或尚未同步
+    var statusHeadline: String {
         if isSyncing {
             return "正在同步血糖与饮食数据…"
         }
         guard isHealthDataAvailable else {
             return "此设备不支持健康数据"
         }
-        if let lastSyncDate, let lastSyncedGlucoseCount, let lastSyncedMealCount {
-            return "上次同步 \(lastSyncDate.formatted(GlucoMomentDateStyle.relative))，\(lastSyncedGlucoseCount) 条血糖、\(lastSyncedMealCount) 条饮食"
+        if let lastSyncDate {
+            return "上次同步 \(lastSyncDate.formatted(GlucoMomentDateStyle.relative))"
         }
         return "尚未同步"
+    }
+
+    /// 上次同步的条数，新版设置页单独占一行显示；同步中或没有同步记录时为 nil
+    var syncedCountText: String? {
+        guard !isSyncing, isHealthDataAvailable, lastSyncDate != nil,
+              let lastSyncedGlucoseCount, let lastSyncedMealCount else {
+            return nil
+        }
+        return "\(lastSyncedGlucoseCount) 条血糖、\(lastSyncedMealCount) 条饮食"
     }
 
     func handleLaunch() async {
@@ -85,12 +105,32 @@ final class HealthKitCoordinator {
             return
         }
 
-        guard isHealthDataAvailable,
-              defaults.integer(forKey: PreferenceKey.authorizationVersion)
-                >= Self.currentAuthorizationVersion else {
+        guard hasAuthorizedCurrentVersion else { return }
+        await synchronize(showErrors: false)
+    }
+
+    /// App 回到前台时调用。冷启动由 handleLaunch 负责；之后每次回到前台，
+    /// 距上次同步超过 foregroundSyncInterval 才静默同步一次，以便拿到 CGM 新写入健康的数据
+    func handleBecameActive() async {
+        guard hasHandledLaunch, hasAuthorizedCurrentVersion else { return }
+        if let lastSyncDate,
+           Date.now.timeIntervalSince(lastSyncDate) < Self.foregroundSyncInterval {
             return
         }
         await synchronize(showErrors: false)
+    }
+
+    /// 页面下拉刷新时调用：用户主动操作，不节流，失败时提示。未授权时什么都不做，页面照常重新读取本地数据
+    func refresh() async {
+        guard hasAuthorizedCurrentVersion else { return }
+        await synchronize(showErrors: true)
+    }
+
+    /// 用户已按当前版本的授权说明同意过，才允许自动同步；否则不能静默访问 HealthKit
+    private var hasAuthorizedCurrentVersion: Bool {
+        isHealthDataAvailable
+            && defaults.integer(forKey: PreferenceKey.authorizationVersion)
+                >= Self.currentAuthorizationVersion
     }
 
     func authorizeAndSync() async {
