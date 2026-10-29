@@ -243,7 +243,7 @@ struct ReviewView: View {
                 .padding(.vertical, 12)
 
             DisclosureGroup {
-                Text("以开始用餐前 15 分钟的平均血糖为基线，取开始后 2 小时内的最高值减去基线，就是最高升幅。如果记录时血糖已经在上升，会把开始时间往前调到上升前的最低点。需要连续血糖仪的数据，2 小时内至少有 \(MealGlucoseResponseCalculator.minimumWindowReadings) 条读数。")
+                Text("以开始用餐前 15 分钟的平均血糖为基线，取开始后 2 小时内的最高值减去基线，就是最高升幅。如果记录时血糖已经在上升，会把开始时间往前调到上升前的最低点；1 小时内吃过上一餐时不调整。2 小时内又吃了下一餐时：下一餐前血糖已经回落，只算前一个峰；还在同一个峰上，就当作连着吃，升幅是几餐一起的。需要连续血糖仪的数据，2 小时内至少有 \(MealGlucoseResponseCalculator.minimumWindowReadings) 条读数。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

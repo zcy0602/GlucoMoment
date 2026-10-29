@@ -60,7 +60,8 @@ struct MealDetailView: View {
                 PostMealGlucoseCard(
                     eatenAt: meal.eatenAt,
                     points: viewModel.glucosePoints,
-                    response: viewModel.response
+                    response: viewModel.response,
+                    nextMealStart: viewModel.nextMealStart
                 )
 
                 if !meal.items.isEmpty {
@@ -300,8 +301,19 @@ struct PostMealGlucoseCard: View {
     let eatenAt: Date
     let points: [GlucosePoint]
     let response: MealGlucoseResponse?
+    var nextMealStart: Date? = nil
 
     private var start: Date { response?.start ?? eatenAt }
+
+    /// 「用餐」标注约占 1 小时的宽度
+    private static let nextMealLabelMinimumMinutes = 60.0
+
+    /// 下一餐在曲线范围内时，在图上标出来
+    private var nextMealMinutes: Double? {
+        guard let nextMealStart else { return nil }
+        let value = minutes(nextMealStart)
+        return value <= 180 ? value : nil
+    }
 
     var body: some View {
         SummaryCard(title: "餐后血糖", systemImage: "waveform.path.ecg", tint: .glucoseTint, detail: detail) {
@@ -316,8 +328,19 @@ struct PostMealGlucoseCard: View {
                     }
                     chart
                         .frame(height: 170)
+                        // 「用餐」「下一餐」标注画在图表上方，留出位置，不压到上面的数字
+                        .padding(.top, 20)
                     if let response, response.startShiftMinutes > 0 {
                         Text("血糖在记录时间前 \(response.startShiftMinutes) 分钟已开始上升，按实际开始时间计算。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let cutOff = response?.cutOffMinutes {
+                        Text("第 \(DisplayFormat.whole(cutOff)) 分钟吃了下一餐，这之前血糖已经回落，只算前一个峰。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if response?.sharesPeakWithAdjacentMeal == true {
+                        Text("和前后的餐连着吃，曲线只有一个峰，这个升幅是几餐一起的。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -382,6 +405,20 @@ struct PostMealGlucoseCard: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color.mealTint)
                 }
+
+            if let nextMealMinutes {
+                RuleMark(x: .value("下一餐", nextMealMinutes))
+                    .foregroundStyle(Color.mealTint.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .annotation(position: .top, alignment: .leading, spacing: 2) {
+                        // 离「用餐」太近时只画线，文字会叠在一起
+                        if nextMealMinutes >= Self.nextMealLabelMinimumMinutes {
+                            Text("下一餐")
+                                .font(.caption2)
+                                .foregroundStyle(Color.mealTint)
+                        }
+                    }
+            }
 
             if let response {
                 RuleMark(y: .value("基线", response.baseline))

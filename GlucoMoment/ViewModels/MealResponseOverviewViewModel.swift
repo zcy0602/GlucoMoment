@@ -104,14 +104,21 @@ final class MealResponseOverviewViewModel {
                 .map { GlucosePoint(time: $0.measuredAt, value: $0.value) }
                 .sorted { $0.time < $1.time }
 
+            let starts = meals.map(\.eatenAt)
             entries = meals.map { meal in
                 let window = points.filter {
                     $0.time >= meal.eatenAt.addingTimeInterval(-Self.lookbackSeconds)
                         && $0.time <= meal.eatenAt.addingTimeInterval(Self.lookaheadSeconds)
                 }
+                let adjacent = MealGlucoseResponseCalculator.adjacentMealStarts(of: meal.eatenAt, among: starts)
                 return Entry(
                     meal: meal,
-                    response: MealGlucoseResponseCalculator.response(recordedStart: meal.eatenAt, points: window)
+                    response: MealGlucoseResponseCalculator.response(
+                        recordedStart: meal.eatenAt,
+                        points: window,
+                        previousMealStart: adjacent.previous,
+                        nextMealStart: adjacent.next
+                    )
                 )
             }
             errorMessage = nil

@@ -84,6 +84,106 @@ struct MealGlucoseResponseCalculatorTests {
         #expect(response.startShiftMinutes == 18)
     }
 
+    @Test("两餐相隔 60 分钟：不传下一餐时会取到下一餐的峰")
+    func secondMealPeakWithoutNeighbor() throws {
+        let response = try #require(
+            MealGlucoseResponseCalculator.response(recordedStart: Fixture.recorded, points: Fixture.points(Fixture.twoMeals))
+        )
+        Self.expectClose(response.peakRise, 4.0)
+        Self.expectClose(response.peakMinutes, 105)
+        #expect(response.cutOffMinutes == nil)
+    }
+
+    @Test("两餐相隔 60 分钟、下一餐前已回落：两个峰，窗口截到下一餐开始，只取前一个峰")
+    func cutsWindowAtNextMeal() throws {
+        let response = try #require(
+            MealGlucoseResponseCalculator.response(
+                recordedStart: Fixture.recorded,
+                points: Fixture.points(Fixture.twoMeals),
+                nextMealStart: Fixture.recorded.addingTimeInterval(60 * 60)
+            )
+        )
+        Self.expectClose(response.baseline, 5.0)
+        Self.expectClose(response.peak, 7.0)
+        Self.expectClose(response.peakRise, 2.0)
+        Self.expectClose(response.peakMinutes, 30)
+        #expect(response.rise2h == nil)
+        Self.expectClose(response.iAUC, 75.00000000000001)
+        Self.expectClose(try #require(response.cutOffMinutes), 60)
+        #expect(!response.sharesPeakWithAdjacentMeal)
+    }
+
+    @Test("下一餐在 2 小时以后：不截断")
+    func ignoresLaterNextMeal() throws {
+        let response = try #require(
+            MealGlucoseResponseCalculator.response(
+                recordedStart: Fixture.recorded,
+                points: Fixture.points(Fixture.steadyStart),
+                nextMealStart: Fixture.recorded.addingTimeInterval(150 * 60)
+            )
+        )
+        #expect(response.cutOffMinutes == nil)
+        #expect(response.rise2h != nil)
+    }
+
+    @Test("下一餐在第 20 分钟、血糖还在同一个峰上：当作连着吃，算到这个峰回落为止")
+    func sharesPeakWithNextMeal() throws {
+        let response = try #require(
+            MealGlucoseResponseCalculator.response(
+                recordedStart: Fixture.recorded,
+                points: Fixture.points(Fixture.oneLongPeak),
+                nextMealStart: Fixture.recorded.addingTimeInterval(20 * 60)
+            )
+        )
+        Self.expectClose(response.baseline, 5.0)
+        Self.expectClose(response.peak, 6.6)
+        Self.expectClose(response.peakRise, 1.5999999999999996)
+        Self.expectClose(response.peakMinutes, 48)
+        #expect(response.rise2h == nil)
+        Self.expectClose(response.iAUC, 78.89999999999999)
+        #expect(response.cutOffMinutes == nil)
+        #expect(response.sharesPeakWithAdjacentMeal)
+    }
+
+    @Test("上一餐在 1 小时内、开始时血糖已在升：不提前开始时间，标为连着吃")
+    func previousMealBlocksOnsetShift() throws {
+        let points = Fixture.points(Fixture.earlyStart)
+        let recent = try #require(
+            MealGlucoseResponseCalculator.response(
+                recordedStart: Fixture.recorded,
+                points: points,
+                previousMealStart: Fixture.recorded.addingTimeInterval(-30 * 60)
+            )
+        )
+        #expect(recent.startShiftMinutes == 0)
+        Self.expectClose(recent.baseline, 6.6499999999999995)
+        Self.expectClose(recent.peakRise, 3.750000000000001)
+        Self.expectClose(recent.peakMinutes, 15)
+        Self.expectClose(recent.iAUC, 213.28125000000009)
+        #expect(recent.sharesPeakWithAdjacentMeal)
+
+        let earlier = try #require(
+            MealGlucoseResponseCalculator.response(
+                recordedStart: Fixture.recorded,
+                points: points,
+                previousMealStart: Fixture.recorded.addingTimeInterval(-90 * 60)
+            )
+        )
+        #expect(earlier.startShiftMinutes == 18)
+        #expect(!earlier.sharesPeakWithAdjacentMeal)
+    }
+
+    @Test("前后相邻的餐：取最近的前一餐和后一餐，时间相同的不算")
+    func findsAdjacentMeals() {
+        let t = Fixture.recorded
+        let starts = [-180, -40, 0, 0, 50, 200].map { t.addingTimeInterval(Double($0) * 60) }
+        let adjacent = MealGlucoseResponseCalculator.adjacentMealStarts(of: t, among: starts)
+        #expect(adjacent.previous == t.addingTimeInterval(-40 * 60))
+        #expect(adjacent.next == t.addingTimeInterval(50 * 60))
+        let alone = MealGlucoseResponseCalculator.adjacentMealStarts(of: t, among: [t])
+        #expect(alone.previous == nil && alone.next == nil)
+    }
+
     private static func expectClose(_ actual: Double, _ expected: Double, sourceLocation: SourceLocation = #_sourceLocation) {
         #expect(abs(actual - expected) < 1e-9, "\(actual) ≠ \(expected)", sourceLocation: sourceLocation)
     }
@@ -138,6 +238,24 @@ enum ResponseFixtures {
         if minute <= -6 { return 5.0 }
         if minute <= 30 { return 5.0 + Double(minute + 6) / 3 * 0.4 }
         return 9.8
+    }
+
+    /// 第 60 分钟又吃了一餐：5.0 → 第 30 分钟 7.0 → 第 60 分钟回落到 6.0 → 第 105 分钟 9.0 → 缓慢回落
+    static func twoMeals(_ minute: Int) -> Double {
+        if minute <= 0 { return 5.0 }
+        if minute <= 30 { return 5.0 + Double(minute) / 3 * 0.2 }
+        if minute <= 60 { return 7.0 - Double(minute - 30) / 3 * 0.1 }
+        if minute <= 105 { return 6.0 + Double(minute - 60) / 3 * 0.2 }
+        if minute <= 180 { return 9.0 - Double(minute - 105) / 3 * 0.07 }
+        return 7.25
+    }
+
+    /// 连着吃、只有一个峰：5.0 → 第 48 分钟 6.6 → 每 3 分钟降 0.05 → 4.9
+    static func oneLongPeak(_ minute: Int) -> Double {
+        if minute <= 0 { return 5.0 }
+        if minute <= 48 { return 5.0 + Double(minute) / 3 * 0.1 }
+        if minute <= 150 { return 6.6 - Double(minute - 48) / 3 * 0.05 }
+        return 4.9
     }
 
     /// 与 steadyStart 相同，但餐后 150～171 分钟降到 3.6

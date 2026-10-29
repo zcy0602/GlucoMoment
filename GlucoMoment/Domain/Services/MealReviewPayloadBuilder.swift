@@ -126,8 +126,15 @@ nonisolated enum MealReviewPayloadBuilder {
     ) -> MealReviewPayload {
         var excludedLowMealCount = 0
         var analyzed: [(meal: MealRecord, response: MealGlucoseResponse)] = []
+        let starts = meals.map(\.eatenAt)
         for meal in meals.sorted(by: { $0.eatenAt < $1.eatenAt }) {
-            guard let response = MealGlucoseResponseCalculator.response(recordedStart: meal.eatenAt, points: points) else {
+            let adjacent = MealGlucoseResponseCalculator.adjacentMealStarts(of: meal.eatenAt, among: starts)
+            guard let response = MealGlucoseResponseCalculator.response(
+                recordedStart: meal.eatenAt,
+                points: points,
+                previousMealStart: adjacent.previous,
+                nextMealStart: adjacent.next
+            ) else {
                 continue
             }
             if response.hasLowReading {
