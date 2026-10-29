@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// 开启近期复盘前的数据发送说明，趋势页和设置页共用。用户点「同意并开启」才会开启
+/// 开启近期复盘前的数据发送说明，复盘页和设置页共用。用户点「同意并开启」才会开启
 struct MealReviewConsentView: View {
     @Environment(\.dismiss) private var dismiss
     /// 例如「当前识别方式是自建代理：数据会发送到……」

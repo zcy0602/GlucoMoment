@@ -6,7 +6,7 @@
 import Charts
 import SwiftUI
 
-/// 趋势页的主图。「今日」画折线；「7 天」「30 天」每天一根从最低到最高的范围条，与「健康」App 的血糖图一致。
+/// 血糖页的主图。「今日」画折线；「7 天」「30 天」每天一根从最低到最高的范围条，与「健康」App 的血糖图一致。
 /// 按住拖动可以查看某个时刻或某一天的数值
 struct GlucoseTrendChart: View {
     let readings: [GlucoseReading]

@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// 新版设置，从「今天」右上角进入。版式参考「设置」App：每行一个彩色图标，说明文字放在分组脚注里
+/// 新版设置，从各标签页右上角进入。版式参考「设置」App：每行一个彩色图标，说明文字放在分组脚注里
 struct SettingsView: View {
     let dependencies: AppDependencies
 

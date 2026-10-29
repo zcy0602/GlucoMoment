@@ -13,26 +13,26 @@ enum InterfacePreference {
 
 /// 新版界面的三个标签页
 enum RootTab: Hashable {
-    case today
+    case glucose
     case meals
-    case trends
+    case review
 }
 
-/// 新版界面的根视图：今天 / 饮食 / 趋势。设置从「今天」右上角进入，与「健康」App 的个人资料入口一致
+/// 新版界面的根视图：血糖 / 饮食 / 复盘。血糖和饮食各管各的记录，复盘把两者连起来看。
+/// 默认打开「饮食」，拍照识别是最先要看到的功能。设置在每页右上角，与「健康」App 的个人资料入口一致
 struct RootTabView: View {
     let dependencies: AppDependencies
     let healthDataRevision: Int
 
-    @State private var selection: RootTab = .today
+    @State private var selection: RootTab = .meals
 
     var body: some View {
         TabView(selection: $selection) {
-            Tab("今天", systemImage: "sun.max", value: RootTab.today) {
+            Tab("血糖", systemImage: "drop", value: RootTab.glucose) {
                 NavigationStack {
-                    TodayView(
+                    GlucoseView(
                         dependencies: dependencies,
-                        healthDataRevision: healthDataRevision,
-                        onShowTab: { selection = $0 }
+                        healthDataRevision: healthDataRevision
                     )
                 }
             }
@@ -46,16 +46,15 @@ struct RootTabView: View {
                 }
             }
 
-            Tab("趋势", systemImage: "chart.xyaxis.line", value: RootTab.trends) {
+            Tab("复盘", systemImage: "chart.dots.scatter", value: RootTab.review) {
                 NavigationStack {
-                    TrendsView(
+                    ReviewView(
                         dependencies: dependencies,
                         healthDataRevision: healthDataRevision
                     )
                 }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
         .tint(Color.brandTeal)
     }
 }

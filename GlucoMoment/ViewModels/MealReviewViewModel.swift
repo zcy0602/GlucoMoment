@@ -6,7 +6,7 @@
 import Foundation
 import Observation
 
-/// 趋势页的「近期复盘」：未开启 → 数据不足 → 可以生成 → 生成中 → 显示结果。
+/// 复盘页的「AI 复盘」：未开启 → 数据不足 → 可以生成 → 生成中 → 显示结果。
 /// 只在用户点按钮时调用模型；数据没变时直接显示上次的结果
 @MainActor
 @Observable

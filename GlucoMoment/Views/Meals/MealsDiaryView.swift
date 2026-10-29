@@ -6,17 +6,20 @@
 import SwiftData
 import SwiftUI
 
-/// 新版饮食页：日期条 + 当天汇总 + 按餐次分组的记录。右上角相机记录新的一餐。
+/// 新版饮食页：日期条 + 当天汇总 + 下一餐提示 + 按时间排列的记录。右上角相机记录新的一餐。
 /// 合并了旧版的「饮食记录」和「历史记录」两个页面
 struct MealsDiaryView: View {
     let dependencies: AppDependencies
     let healthDataRevision: Int
 
     @State private var viewModel: MealsDiaryViewModel
+    /// 只用于「下一餐提示」：按今天已记录的餐套用规则，没有触发时显示当前餐次的通用建议
+    @State private var tipViewModel: MealLogViewModel
     @State private var captureSource: MealPhotoSource?
 
     init(dependencies: AppDependencies, healthDataRevision: Int) {
         _viewModel = State(initialValue: MealsDiaryViewModel(repository: dependencies.mealRepository))
+        _tipViewModel = State(initialValue: MealLogViewModel(repository: dependencies.mealRepository))
         self.dependencies = dependencies
         self.healthDataRevision = healthDataRevision
     }
@@ -46,16 +49,19 @@ struct MealsDiaryView: View {
                     emptyState
                         .listRowBackground(Color.clear)
                 }
+                tipSection
             } else {
                 Section {
                     daySummary
                 }
 
+                tipSection
+
                 Section {
                     ForEach(viewModel.meals) { meal in
                         NavigationLink {
                             MealDetailView(meal: meal, dependencies: dependencies) {
-                                viewModel.load()
+                                reload()
                             }
                         } label: {
                             MealListRow(meal: meal, photoStore: dependencies.mealPhotoStore)
@@ -63,7 +69,10 @@ struct MealsDiaryView: View {
                         .swipeActions {
                             if meal.source != .healthKit {
                                 Button("删除", systemImage: "trash", role: .destructive) {
-                                    Task { await viewModel.delete(meal) }
+                                    Task {
+                                        await viewModel.delete(meal)
+                                        tipViewModel.reload()
+                                    }
                                 }
                             }
                         }
@@ -75,7 +84,7 @@ struct MealsDiaryView: View {
         .navigationTitle("饮食")
         .navigationSubtitle(viewModel.selectedDate.formatted(Self.subtitleStyle))
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("拍照", systemImage: "camera") { captureSource = .camera }
                     Button("从相册选择", systemImage: "photo.on.rectangle") { captureSource = .library }
@@ -83,16 +92,46 @@ struct MealsDiaryView: View {
                     Label("记录一餐", systemImage: "camera.fill")
                 }
             }
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            ToolbarItem(placement: .topBarTrailing) {
+                SettingsToolbarButton(dependencies: dependencies)
+            }
         }
         .mealCapture(source: $captureSource, dependencies: dependencies) {
-            viewModel.load()
+            reload()
             viewModel.select(viewModel.today)
         }
         .refreshable {
             await dependencies.healthKitCoordinator.refresh()
-            viewModel.load()
+            reload()
         }
-        .task(id: healthDataRevision) { viewModel.load() }
+        .task(id: healthDataRevision) { reload() }
+    }
+
+    private func reload() {
+        viewModel.load()
+        tipViewModel.reload()
+    }
+
+    /// 只在选中今天时显示；回看以前的日期时提示没有意义
+    @ViewBuilder
+    private var tipSection: some View {
+        if viewModel.isSelectedToday {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(tipViewModel.suggestionTitle, systemImage: "lightbulb.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandAmber)
+                    Text(tipViewModel.suggestionText)
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(tipViewModel.suggestionCitation)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 4)
+            }
+        }
     }
 
     static let subtitleStyle = Date.FormatStyle()
