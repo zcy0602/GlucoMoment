@@ -14,6 +14,7 @@ struct MealDetailView: View {
     @State private var isShowingBreakdown = false
     @State private var isConfirmingDelete = false
     @State private var isEditing = false
+    @State private var viewingItem: MealFoodItem?
     private let dependencies: AppDependencies
     private let onChanged: () -> Void
 
@@ -114,6 +115,9 @@ struct MealDetailView: View {
         } message: {
             Text("照片和识别结果会一起删除，健康 App 中对应的营养记录也会移除。")
         }
+        .sheet(item: $viewingItem) { item in
+            FoodItemDetailView(item: item)
+        }
         .sheet(isPresented: $isShowingBreakdown) {
             ScoreBreakdownView(score: meal.score, breakdown: meal.stableScore)
         }
@@ -152,13 +156,25 @@ struct MealDetailView: View {
         SummaryCard(title: "食物", systemImage: "fork.knife", tint: .mealTint, detail: "\(meal.items.count) 样") {
             VStack(spacing: 0) {
                 ForEach(meal.items) { item in
-                    FoodItemRow(
-                        name: item.name,
-                        category: item.foodCategory,
-                        portionDescription: item.portionDescription,
-                        estimatedGrams: item.estimatedGrams,
-                        carbohydratesGrams: item.carbohydratesGrams
-                    )
+                    Button {
+                        viewingItem = item
+                    } label: {
+                        HStack(spacing: 8) {
+                            FoodItemRow(
+                                name: item.name,
+                                category: item.foodCategory,
+                                portionDescription: item.portionDescription,
+                                estimatedGrams: item.estimatedGrams,
+                                carbohydratesGrams: item.carbohydratesGrams
+                            )
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
                     if item.id != meal.items.last?.id {
                         Divider()
                             .padding(.leading, 22)
@@ -214,6 +230,68 @@ struct MealDetailView: View {
             onChanged()
             dismiss()
         }
+    }
+}
+
+/// 单样食物的只读详情，版式与结果页的食物编辑表单一致；要修改请用详情页的「编辑」
+private struct FoodItemDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: MealFoodItem
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("名称", value: item.name)
+                    if !item.portionDescription.isEmpty {
+                        LabeledContent("份量", value: item.portionDescription)
+                    }
+                    LabeledContent("类别", value: item.foodCategory?.rawValue ?? "未选择")
+                }
+
+                Section("份量") {
+                    numberRow("重量", value: item.estimatedGrams, unit: "克")
+                    numberRow("热量", value: item.caloriesKcal, unit: "千卡")
+                }
+
+                Section("营养") {
+                    numberRow("碳水", value: item.carbohydratesGrams, unit: "克")
+                    numberRow("膳食纤维", value: item.fiberGrams, unit: "克")
+                    numberRow("蛋白质", value: item.proteinGrams, unit: "克")
+                    numberRow("脂肪", value: item.fatGrams, unit: "克")
+                }
+
+                if let evidence = item.evidence, !evidence.isEmpty {
+                    Section("识别依据") {
+                        Text(evidence)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if !item.uncertainties.isEmpty {
+                    Section("不确定的地方") {
+                        ForEach(item.uncertainties, id: \.self) { uncertainty in
+                            Text(uncertainty)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(item.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(role: .close) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func numberRow(_ title: String, value: Double, unit: String) -> some View {
+        LabeledContent(title, value: "\(DisplayFormat.oneDecimal(value)) \(unit)")
     }
 }
 

@@ -35,16 +35,12 @@ final class MealsDiaryViewModel {
         }
     }
 
+    /// 选中日期的餐食，按用餐时间从新到旧排列。不按餐次分组：
+    /// 餐次是用户选的，可能和时间对不上（比如 15:00 标了晚餐），分组会让顺序乱掉
     var meals: [MealRecord] {
-        recentMeals.filter { calendar.isDate($0.eatenAt, inSameDayAs: selectedDate) }
-    }
-
-    var sections: [MealPeriodSection] {
-        let meals = meals
-        return MealPeriod.allCases.compactMap { period in
-            let periodMeals = meals.filter { $0.mealPeriod == period }
-            return periodMeals.isEmpty ? nil : MealPeriodSection(period: period, meals: periodMeals)
-        }
+        recentMeals
+            .filter { calendar.isDate($0.eatenAt, inSameDayAs: selectedDate) }
+            .sorted { $0.eatenAt > $1.eatenAt }
     }
 
     func hasMeals(on day: Date) -> Bool {
