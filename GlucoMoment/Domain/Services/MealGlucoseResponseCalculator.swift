@@ -65,8 +65,8 @@ nonisolated enum MealGlucoseResponseCalculator {
 
     /// 发给模型的曲线：开始前 45 分钟到开始后 180 分钟，每 15 分钟一个点
     static let curveOffsets = Array(stride(from: -45, through: 180, by: 15))
-    /// 与 `GlucoseTargetRange.standard` 的下限一致
-    static let lowThreshold = 3.9
+    /// 固定的低血糖安全线，不跟随用户设置的目标下限
+    static let lowThreshold = GlucoseTargetRange.hypoglycemiaThreshold
 
     /// 窗口内数据不足（只有指尖血、传感器断档或不在数据范围内）时返回 nil。
     /// `previousMealStart` / `nextMealStart` 是前后最近的另一餐的记录时间，见 `adjacentMealStarts(of:among:)`；

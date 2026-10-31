@@ -17,6 +17,8 @@ struct AppDependencies {
     let mealReviewSettings: MealReviewSettings
     let mealReviewCache: any MealReviewCacheStoring
     let foodAnalysisSettings: FoodAnalysisSettings
+    /// 与 `GlucoseTargetRange.current` 读的是同一个共享实例
+    let glucoseTargetSettings: GlucoseTargetSettings
     let foodAnalysisCredentialStore: any FoodAnalysisCredentialStoring
     let mealPhotoStore: any MealPhotoStoring
     let healthKitCoordinator: HealthKitCoordinator
@@ -60,6 +62,7 @@ struct AppDependencies {
             mealReviewSettings: MealReviewSettings(),
             mealReviewCache: LocalMealReviewCacheStore(),
             foodAnalysisSettings: settings,
+            glucoseTargetSettings: .shared,
             foodAnalysisCredentialStore: credentialStore,
             mealPhotoStore: LocalMealPhotoStore(),
             healthKitCoordinator: HealthKitCoordinator(service: healthKitService)
@@ -88,6 +91,7 @@ struct AppDependencies {
                 mealReviewSettings: MealReviewSettings(isEnabled: false),
                 mealReviewCache: InMemoryMealReviewCacheStore(),
                 foodAnalysisSettings: settings,
+                glucoseTargetSettings: .shared,
                 foodAnalysisCredentialStore: credentialStore,
                 mealPhotoStore: InMemoryMealPhotoStore(),
                 healthKitCoordinator: HealthKitCoordinator(

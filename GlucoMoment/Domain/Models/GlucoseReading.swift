@@ -30,6 +30,6 @@ struct GlucoseReading: Identifiable, Hashable, Sendable {
     }
 
     var state: GlucoseState {
-        GlucoseTargetRange.standard.state(for: value)
+        GlucoseTargetRange.current.state(for: value)
     }
 }
