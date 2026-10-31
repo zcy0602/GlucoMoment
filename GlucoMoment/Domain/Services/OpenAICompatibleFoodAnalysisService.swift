@@ -188,13 +188,13 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
     }
 
     /// 发送请求并取出模型回复中的 JSON 对象
-    private func requestJSONObject(messages: [[String: Any]], maxTokens: Int) async throws -> Data {
+    private func requestJSONObject(messages: [[String: Any]], maxTokens: Int, temperature: Double = 0.1) async throws -> Data {
         let data: Data
         do {
-            data = try await send(body: requestBody(messages: messages, maxTokens: maxTokens, jsonMode: true))
+            data = try await send(body: requestBody(messages: messages, maxTokens: maxTokens, jsonMode: true, temperature: temperature))
         } catch FoodAnalysisError.requestFailed(statusCode: 400, _) {
             // 部分兼容服务不支持 JSON 模式；提示词已要求只返回 JSON，去掉后重试一次
-            data = try await send(body: requestBody(messages: messages, maxTokens: maxTokens, jsonMode: false))
+            data = try await send(body: requestBody(messages: messages, maxTokens: maxTokens, jsonMode: false, temperature: temperature))
         }
 
         let content = try decodeEnvelope(data).content
@@ -207,7 +207,8 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
     private func requestBody(
         messages: [[String: Any]],
         maxTokens: Int,
-        jsonMode: Bool = false
+        jsonMode: Bool = false,
+        temperature: Double = 0.1
     ) -> [String: Any] {
         var body: [String: Any] = [
             "model": model,
@@ -219,12 +220,12 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
         switch configuration.provider {
         case .dashScope:
             body["enable_thinking"] = false
-            body["temperature"] = jsonMode ? 0.1 : 0
+            body["temperature"] = jsonMode ? temperature : 0
             body["max_completion_tokens"] = maxTokens
         case .deepSeek:
             // temperature 只在非思考模式下生效
             body["thinking"] = ["type": "disabled"]
-            body["temperature"] = jsonMode ? 0.1 : 0
+            body["temperature"] = jsonMode ? temperature : 0
             body["max_tokens"] = maxTokens
         default:
             break
@@ -598,7 +599,7 @@ extension OpenAICompatibleFoodAnalysisService: MealReviewService {
         ]
 
         return try await withRetries {
-            let data = try await requestJSONObject(messages: messages, maxTokens: 1200)
+            let data = try await requestJSONObject(messages: messages, maxTokens: 1200, temperature: MealReviewPrompt.temperature)
             do {
                 return try JSONDecoder().decode(MealReviewResponseDTO.self, from: data)
                     .makeDraft(provider: configuration.provider.resultIdentifier, model: model)

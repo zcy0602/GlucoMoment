@@ -58,9 +58,15 @@ nonisolated struct MealReviewPayload: Codable, Hashable, Sendable {
         var peakRiseRank: Int = 0
         /// 本机餐食记录的 id，只在 App 里用来判断复盘之后有没有新的餐；不编码，不发给模型
         var recordID: UUID?
+        /// 整餐碳水粗分为偏少、中等、偏多，模型说碳水多少只能照它写；没有条目的餐为 nil
+        var carbsLevel: String?
+        /// 稳糖分和实测升幅对不上时的说明，如"稳糖分高，升幅却靠前"；对得上为 nil。
+        /// 模型只能用它说分数和实测的反差，不自己比较分数（曾把 89 和 90 说反）
+        var scoreMismatch: String?
 
         private nonisolated enum CodingKeys: String, CodingKey {
-            case id, date, weekday, period, title, foods, glycemicLoad, score, response, curve, peakRiseRank
+            case id, date, weekday, period, title, foods, glycemicLoad, score, response, curve, peakRiseRank, carbsLevel,
+                 scoreMismatch
         }
     }
 
@@ -78,6 +84,8 @@ nonisolated struct MealReviewPayload: Codable, Hashable, Sendable {
         var groups: [Group]
         /// 每组都至少有 `MealReviewPayloadBuilder.minimumGroupSize` 餐；不足时只能说"样本还少"
         var isSufficient: Bool
+        /// 各组平均升幅最大和最小相差至少 `MealReviewPayloadBuilder.minimumClearDifference`；否则只能说"差别不大"
+        var isClearDifference: Bool = false
     }
 
     /// 升幅最高和最低的几餐在食物上的共同点，计数在本地算好，供第一条"规律"引用
@@ -143,6 +151,9 @@ nonisolated struct MealReviewPayload: Codable, Hashable, Sendable {
             if let score = meal.score {
                 values["\(meal.id).score"] = "\(score)"
             }
+            if let carbsLevel = meal.carbsLevel {
+                values["\(meal.id).carbsLevel"] = carbsLevel
+            }
             if let rise2h = meal.response.rise2h {
                 values["\(meal.id).rise2h"] = Self.decimal(rise2h)
             }
@@ -186,6 +197,14 @@ nonisolated enum MealReviewPayloadBuilder {
     static let maximumPatternGroupSize = 5
     /// 高低两组某类食物至少差这么多餐才算规律
     static let minimumPatternDifference = 2
+    /// 分组平均升幅至少差这么多 mmol/L 才算明显不同
+    static let minimumClearDifference = 0.5
+    /// 整餐碳水低于前者算偏少，不低于后者算偏多（克）。只是粗分，用来约束模型的说法
+    static let lowCarbsGrams = 30.0
+    static let highCarbsGrams = 75.0
+    /// 稳糖分不低于前者算高、不高于后者算低；升幅排在前 1/3 或后 1/3 才算反差
+    static let highScore = 70
+    static let lowScore = 30
 
     static func build(
         meals: [MealRecord],
@@ -220,6 +239,7 @@ nonisolated enum MealReviewPayloadBuilder {
         let ranking = entries.indices.sorted { entries[$0].response.peakRise > entries[$1].response.peakRise }
         for (rank, index) in ranking.enumerated() {
             entries[index].peakRiseRank = rank + 1
+            entries[index].scoreMismatch = scoreMismatch(score: entries[index].score, rank: rank + 1, count: entries.count)
         }
         let scored = zip(entries, analyzed).map { entry, item in (entry: entry, breakdown: item.meal.stableScore) }
 
@@ -230,6 +250,13 @@ nonisolated enum MealReviewPayloadBuilder {
             pattern: pattern(of: entries),
             excludedLowMealCount: excludedLowMealCount
         )
+    }
+
+    private static func scoreMismatch(score: Int?, rank: Int, count: Int) -> String? {
+        guard let score, count >= 3 else { return nil }
+        if score >= highScore, rank * 3 <= count { return "稳糖分高，升幅却靠前" }
+        if score <= lowScore, rank * 3 > count * 2 { return "稳糖分低，升幅却靠后" }
+        return nil
     }
 
     /// 按食物类别数：精制主食、添加糖、蛋白质（肉蛋鱼豆或乳制品）、蔬菜；没有类别的餐都不计入
@@ -287,6 +314,9 @@ nonisolated enum MealReviewPayloadBuilder {
         let components = calendar.dateComponents([.month, .day, .weekday], from: meal.eatenAt)
         let weekdays = ["日", "一", "二", "三", "四", "五", "六"]
         let breakdown = meal.stableScore
+        let carbs = meal.items.reduce(0) { $0 + $1.carbohydratesGrams }
+        let carbsLevel: String? = meal.items.isEmpty ? nil
+            : carbs < lowCarbsGrams ? "偏少" : carbs >= highCarbsGrams ? "偏多" : "中等"
         return MealReviewPayload.Meal(
             id: id,
             date: String(format: "%02d-%02d", components.month ?? 0, components.day ?? 0),
@@ -315,7 +345,8 @@ nonisolated enum MealReviewPayloadBuilder {
                 minutesFromStart: MealGlucoseResponseCalculator.curveOffsets,
                 mmol: response.curve.map { $0.map(rounded) }
             ),
-            recordID: meal.id
+            recordID: meal.id,
+            carbsLevel: carbsLevel
         )
     }
 
@@ -379,11 +410,14 @@ nonisolated enum MealReviewPayloadBuilder {
                 )
             }
             guard groups.count >= 2 else { continue }
+            // 平均值已四舍五入到 0.1，留一点误差余量
+            let averages = groups.map(\.averagePeakRise)
             result.append(MealReviewPayload.Comparison(
                 id: "C\(result.count + 1)",
                 title: definition.title,
                 groups: groups,
-                isSufficient: groups.allSatisfy { $0.mealIds.count >= minimumGroupSize }
+                isSufficient: groups.allSatisfy { $0.mealIds.count >= minimumGroupSize },
+                isClearDifference: (averages.max() ?? 0) - (averages.min() ?? 0) >= minimumClearDifference - 0.001
             ))
         }
         return result

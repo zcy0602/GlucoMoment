@@ -60,7 +60,7 @@ node dist/server.js
 
 ```powershell
 curl http://localhost:8787/health
-# → {"status":"ok","promptVersion":"food-analysis-v2","correctionPromptVersion":"food-correction-v1","reviewPromptVersion":"meal-review-v2"}
+# → {"status":"ok","promptVersion":"food-analysis-v2","correctionPromptVersion":"food-correction-v1","reviewPromptVersion":"meal-review-v3"}
 ```
 
 ### 4. 注册 Windows Service（开机自启 + 崩溃重启）

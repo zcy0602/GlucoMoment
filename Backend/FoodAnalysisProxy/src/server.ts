@@ -13,6 +13,7 @@ import {
   PROMPT_VERSION,
   CORRECTION_PROMPT_VERSION,
   REVIEW_PROMPT_VERSION,
+  REVIEW_TEMPERATURE,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_COUNT,
   MAX_TOTAL_IMAGE_BYTES,
@@ -142,6 +143,7 @@ async function callModel(
   userContent: unknown,
   requestId: string,
   maxTokens: number,
+  temperature = 0.1,
 ): Promise<{ content: string; provider: string; model: string }> {
   const provider = config.FOOD_AI_PROVIDER || "qwen";
   const providerConfig = resolveProvider(provider as "qwen" | "glm", config);
@@ -161,7 +163,7 @@ async function callModel(
       ],
       response_format: { type: "json_object" },
       enable_thinking: false,
-      temperature: 0.1,
+      temperature,
       max_completion_tokens: maxTokens,
     }),
   });
@@ -327,6 +329,7 @@ app.post("/v1/review/recent", (req: Request, res: Response) => {
         buildReviewUserPrompt(payload),
         requestId,
         1200,
+        REVIEW_TEMPERATURE,
       );
 
       res.json({

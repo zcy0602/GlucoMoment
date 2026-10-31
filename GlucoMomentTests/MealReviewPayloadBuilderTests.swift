@@ -66,6 +66,7 @@ struct MealReviewPayloadBuilderTests {
         #expect(dinner.curve.mmol.count == 16)
         #expect(dinner.foods.first?.category == "精制谷物")
         #expect(dinner.glycemicLoad == 41.1)
+        #expect(Self.payload.meals.first?.carbsLevel == nil)
         #expect(Self.payload.meals.first?.glycemicLoad == nil)
     }
 
@@ -76,6 +77,8 @@ struct MealReviewPayloadBuilderTests {
         #expect(comparisons.map(\.title) == ["按餐次", "按主食", "按蔬菜"])
         #expect(comparisons.map(\.id) == ["C1", "C2", "C3"])
         #expect(comparisons.allSatisfy { !$0.isSufficient })
+        // 午餐 2.6、晚餐 5.5，相差超过 0.5
+        #expect(comparisons[0].isClearDifference)
         #expect(comparisons[0].groups.map(\.key) == ["lunch", "dinner"])
         #expect(comparisons[0].groups[0].mealIds == ["M1", "M3"])
         #expect(comparisons[1].groups.map(\.mealIds) == [["M2"], ["M3"]])

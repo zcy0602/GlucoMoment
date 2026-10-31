@@ -38,6 +38,8 @@ struct MealReviewValidatorTests {
         ("多吃蔬菜。", [], "G1a", .noReference),
         ("{M2.when}主食导致升高。", [], "G3a", .bannedTerm("导致")),
         ("{M2.when}之后出现了低血糖。", [], "G3c", .bannedTerm("低血糖")),
+        ("{M2.title}碳水不多。", [], "G3a", .bannedTerm("碳水不多")),
+        ("{M2.title}和同天的{M3.title}差别不大。", [], "G3c", .bannedTerm("同天")),
         ("{M2.when}可以问问医生要不要调整用药。", [], "G3c", .bannedTerm("药")),
         ("{M2.when}的血糖升了 5.5。", [], "G3a", .rawNumber("了 5.5。")),
         ("M2 那一餐升幅 {M2.peakRise}。", [], "G3a", .rawNumber("M2 那一餐升幅")),
