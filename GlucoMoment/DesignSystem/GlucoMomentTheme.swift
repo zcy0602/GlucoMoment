@@ -16,14 +16,15 @@ extension Color {
 }
 
 extension GlucoseState {
+    /// 偏低用红色、偏高用橙色：低血糖更危险，用更醒目的颜色（与鱼跃 Anytime 一致）
     var tint: Color {
         switch self {
         case .low:
-            Color.brandAmber
+            Color.brandRose
         case .inRange:
             Color.brandLeaf
         case .elevated:
-            Color.brandRose
+            Color.brandAmber
         }
     }
 }

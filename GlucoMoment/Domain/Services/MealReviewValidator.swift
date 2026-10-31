@@ -43,10 +43,18 @@ nonisolated enum MealReviewValidator {
         case rawNumber(String)
     }
 
-    /// 占位符以外的文字最多这么多字（提示词要求 80 字，留一点余量）
-    static let maxPlainTextLength = 100
-    /// 不用因果词，不涉及药物、诊断、加餐和低血糖
-    static let bannedTerms = ["导致", "造成", "引起", "因为", "胰岛素", "剂量", "药", "诊断", "确诊", "治疗", "治愈", "加餐", "低血糖"]
+    /// 占位符以外的文字最多这么多字（提示词要求 120 字，留一点余量）
+    static let maxPlainTextLength = 140
+    /// 不用因果词（含"让"），不涉及药物、诊断和低血糖，不建议加餐，不推测份量，不用"吸收"这类常识解释。
+    /// "加餐"本身是餐次名，只禁建议加餐的说法
+    static let bannedTerms = [
+        "导致", "造成", "引起", "因为", "让", "胰岛素", "剂量", "药", "诊断", "确诊", "治疗", "治愈",
+        "建议加餐", "可以加餐", "需要加餐", "多加餐", "睡前加餐", "低血糖", "大份", "小份", "吸收",
+        // 碳水多少只能用 {M1.carbsLevel}，模型自己写的容易和本地分级不一致
+        "碳水偏少", "碳水偏多", "碳水中等", "碳水不多", "碳水不高", "碳水较少", "碳水较多", "碳水很少", "碳水很多", "碳水高", "碳水低",
+        // 规律只能说一组"更多"，模型曾把最低那组的 3/5 说成"几乎没有"；日期只能用 {M1.when}
+        "几乎没", "基本没", "完全没", "同天", "同一天", "当天",
+    ]
     /// "避免低血糖"是指南 G4 的原话，单独放行
     static let allowedPhrases = ["避免低血糖"]
     /// 允许直接写的数字：通用时长、指南里的 1/3、500 克、每周 5 天等；其余数字都必须用占位符
@@ -59,19 +67,26 @@ nonisolated enum MealReviewValidator {
 
     static func review(from draft: MealReviewDraft, payload: MealReviewPayload) -> MealReview {
         var items: [MealReview.Item] = []
+        var patternItems: [MealReview.Item] = []
         var rejectedCount = 0
         for item in draft.items {
             switch check(item, payload: payload) {
+            case .success(let valid) where usesPattern(item):
+                patternItems.append(valid)
             case .success(let valid):
                 items.append(valid)
             case .failure:
                 rejectedCount += 1
             }
         }
+        // 规律那一条是结论，不管模型排在第几都放到最前面
+        items = patternItems + items
 
         let isFallback = items.isEmpty
         if isFallback {
-            items = MealReviewTemplate.items(for: payload).compactMap { try? check($0, payload: payload).get() }
+            let template = MealReviewTemplate.items(for: payload)
+            items = (template.filter(usesPattern) + template.filter { !usesPattern($0) })
+                .compactMap { try? check($0, payload: payload).get() }
         }
         return MealReview(
             items: items,
@@ -99,6 +114,7 @@ nonisolated enum MealReviewValidator {
         let values = payload.placeholderValues
         var mealIds = item.mealIds
         var comparisonIds = item.comparisonIds
+        var citesPattern = false
         let placeholder = placeholderRegex()
         for match in item.text.matches(of: placeholder) {
             let key = String(match.output.1)
@@ -106,13 +122,14 @@ nonisolated enum MealReviewValidator {
             let owner = String(key.prefix { $0 != "." })
             if owner.hasPrefix("M"), !mealIds.contains(owner) { mealIds.append(owner) }
             if owner.hasPrefix("C"), !comparisonIds.contains(owner) { comparisonIds.append(owner) }
+            if owner == "P" { citesPattern = true }
         }
 
         let plain = item.text.replacing(placeholder, with: "")
         if let brace = plain.firstIndex(where: { $0 == "{" || $0 == "}" }) {
             return .failure(.unknownPlaceholder(String(plain[brace...].prefix(12))))
         }
-        guard !mealIds.isEmpty || !comparisonIds.isEmpty else { return .failure(.noReference) }
+        guard !mealIds.isEmpty || !comparisonIds.isEmpty || citesPattern else { return .failure(.noReference) }
         guard plain.count <= maxPlainTextLength else { return .failure(.tooLong) }
 
         var screened = plain
@@ -135,7 +152,7 @@ nonisolated enum MealReviewValidator {
         let rendered = item.text.replacing(placeholder) { match in values[String(match.output.1)] ?? "" }
         return .success(MealReview.Item(
             text: rendered,
-            source: source(mealIds: mealIds, comparisonIds: comparisonIds, guideline: guideline, payload: payload),
+            source: source(mealIds: mealIds, comparisonIds: comparisonIds, citesPattern: citesPattern, guideline: guideline, payload: payload),
             guideline: guideline,
             mealIds: mealIds,
             comparisonIds: comparisonIds
@@ -150,11 +167,14 @@ nonisolated enum MealReviewValidator {
     private static func source(
         mealIds: [String],
         comparisonIds: [String],
+        citesPattern: Bool,
         guideline: DietGuideline,
         payload: MealReviewPayload
     ) -> String {
         var parts: [String] = []
-        if mealIds.count == 1, let when = payload.placeholderValues["\(mealIds[0]).when"] {
+        if citesPattern, let pattern = payload.pattern {
+            parts.append("最近 \(pattern.mealCount) 餐的升幅排名")
+        } else if mealIds.count == 1, let when = payload.placeholderValues["\(mealIds[0]).when"] {
             parts.append(when)
         } else if mealIds.count > 1 {
             parts.append("你的 \(mealIds.count) 餐记录")
@@ -162,6 +182,11 @@ nonisolated enum MealReviewValidator {
         parts += comparisonIds.compactMap { id in payload.comparisons.first { $0.id == id }?.title }
         parts.append("食养指南\(guideline.principleText)")
         return "依据：" + parts.joined(separator: " · ")
+    }
+
+    /// 用了 {P.…} 占位符的是"规律"那一条
+    private static func usesPattern(_ item: MealReviewDraftItem) -> Bool {
+        item.text.contains("{P.")
     }
 
     /// {M1.peakRise}、{C1.lunch.count} 这样的占位符；Regex 不是 Sendable，每次现建

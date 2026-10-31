@@ -22,6 +22,8 @@ final class MealDetailViewModel {
     private(set) var photos: [Data] = []
     private(set) var glucosePoints: [GlucosePoint] = []
     private(set) var response: MealGlucoseResponse?
+    /// 下一餐的记录时间，在餐后曲线范围内时标出来
+    private(set) var nextMealStart: Date?
     private(set) var errorMessage: String?
 
     init(
@@ -65,7 +67,19 @@ final class MealDetailViewModel {
         } catch {
             glucosePoints = []
         }
-        response = MealGlucoseResponseCalculator.response(recordedStart: meal.eatenAt, points: glucosePoints)
+        // 前后相邻的餐：下一餐开始后的血糖不算到这一餐头上
+        let neighbors = (try? mealRepository.meals(in: window, period: nil)) ?? []
+        let adjacent = MealGlucoseResponseCalculator.adjacentMealStarts(
+            of: meal.eatenAt,
+            among: neighbors.map(\.eatenAt)
+        )
+        nextMealStart = adjacent.next
+        response = MealGlucoseResponseCalculator.response(
+            recordedStart: meal.eatenAt,
+            points: glucosePoints,
+            previousMealStart: adjacent.previous,
+            nextMealStart: adjacent.next
+        )
     }
 
     /// 删除成功返回 true

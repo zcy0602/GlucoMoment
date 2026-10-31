@@ -5,16 +5,18 @@
 
 import SwiftUI
 
-/// 新版设置，从「今天」右上角进入。版式参考「设置」App：每行一个彩色图标，说明文字放在分组脚注里
+/// 新版设置，从各标签页右上角进入。版式参考「设置」App：每行一个彩色图标，说明文字放在分组脚注里
 struct SettingsView: View {
     let dependencies: AppDependencies
 
     @Environment(\.dismiss) private var dismiss
     @AppStorage(InterfacePreference.redesignKey) private var usesRedesign = true
     @State private var isShowingReviewConsent = false
+    @State private var isShowingGlucoseTarget = false
 
     private var healthKit: HealthKitCoordinator { dependencies.healthKitCoordinator }
     private var reviewSettings: MealReviewSettings { dependencies.mealReviewSettings }
+    private var glucoseTarget: GlucoseTargetSettings { dependencies.glucoseTargetSettings }
 
     var body: some View {
         Form {
@@ -61,6 +63,20 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("读取最近 30 天的血糖和饮食营养，并把在这里记录的内容写回健康 App。")
+            }
+
+            Section {
+                Button {
+                    isShowingGlucoseTarget = true
+                } label: {
+                    row(icon: "scope", tint: .glucoseTint, title: "血糖目标范围") {
+                        Text("\(DisplayFormat.glucose(glucoseTarget.range.lowerBound))–\(DisplayFormat.glucose(glucoseTarget.range.upperBound))")
+                            .monospacedDigit()
+                    }
+                }
+                .foregroundStyle(.primary)
+            } footer: {
+                Text(glucoseTargetFooter)
             }
 
             Section {
@@ -112,6 +128,10 @@ struct SettingsView: View {
                 Button(role: .confirm) { dismiss() }
             }
         }
+        .sheet(isPresented: $isShowingGlucoseTarget) {
+            GlucoseTargetView(settings: glucoseTarget, repository: dependencies.glucoseRepository)
+                .tint(Color.brandTeal)
+        }
         .sheet(isPresented: $isShowingReviewConsent) {
             MealReviewConsentView(destination: dependencies.foodAnalysisSettings.reviewDestinationDescription) {
                 reviewSettings.isEnabled = true
@@ -132,6 +152,14 @@ struct SettingsView: View {
             trailing()
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var glucoseTargetFooter: String {
+        let status = glucoseTarget.isCustomized ? "已自定义" : "推荐值"
+        guard let population = glucoseTarget.population else {
+            return glucoseTarget.isCustomized ? "已自定义。用于图表的目标带和「目标范围内」的比例。" : "未设置，按糖尿病成人的推荐范围显示。"
+        }
+        return "\(population.title)，\(status)。"
     }
 
     /// 打开时先看数据发送说明，同意后才真正开启；关闭时删除本机保存的复盘

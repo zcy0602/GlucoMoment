@@ -17,7 +17,7 @@ enum MealPhotoSource: Hashable, Identifiable {
 
 extension View {
     /// 给任意页面加上「记录一餐」的入口：把 `source` 设为相机或相册，选好照片后弹出记录流程。
-    /// 今天页和饮食页共用，保存后调用 `onSaved` 刷新列表
+    /// 饮食页使用，保存后调用 `onSaved` 刷新列表
     func mealCapture(
         source: Binding<MealPhotoSource?>,
         dependencies: AppDependencies,

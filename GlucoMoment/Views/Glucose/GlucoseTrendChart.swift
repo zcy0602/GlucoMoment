@@ -6,7 +6,7 @@
 import Charts
 import SwiftUI
 
-/// 趋势页的主图。「今日」画折线；「7 天」「30 天」每天一根从最低到最高的范围条，与「健康」App 的血糖图一致。
+/// 血糖页的主图。「今日」画折线；「7 天」「30 天」每天一根从最低到最高的范围条，与「健康」App 的血糖图一致。
 /// 按住拖动可以查看某个时刻或某一天的数值
 struct GlucoseTrendChart: View {
     let readings: [GlucoseReading]
@@ -15,7 +15,7 @@ struct GlucoseTrendChart: View {
 
     @State private var selection: Date?
 
-    private let target = GlucoseTargetRange.standard
+    private var target: GlucoseTargetRange { .current }
     private let calendar = Calendar.current
 
     struct DayRange: Identifiable {
@@ -67,7 +67,8 @@ struct GlucoseTrendChart: View {
                 y: .value("血糖", reading.value)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(Color.glucoseTint)
+            .foregroundStyle(target.curveGradient(yDomain: yDomain))
+            .alignsMarkStylesWithPlotArea()
             .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
         }
         ForEach(readings.count <= 24 ? readings : []) { reading in
@@ -90,7 +91,9 @@ struct GlucoseTrendChart: View {
                 width: .ratio(range == .week ? 0.35 : 0.55)
             )
             .clipShape(Capsule())
-            .foregroundStyle(Color.glucoseTint.gradient)
+            // 范围条超出目标范围的部分同样变色
+            .foregroundStyle(target.curveGradient(yDomain: yDomain))
+            .alignsMarkStylesWithPlotArea()
             .opacity(selectedDay == nil || selectedDay?.day == day.day ? 1 : 0.35)
         }
     }

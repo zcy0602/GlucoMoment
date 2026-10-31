@@ -22,7 +22,7 @@ nonisolated struct MealGlucoseResponse: Hashable, Sendable {
     var peak: Double
     var peakRise: Double
     var peakMinutes: Double
-    /// 开始后 120 分钟时的值减去基线；该时刻没有数据时为 nil
+    /// 开始后 120 分钟时的值减去基线；该时刻没有数据或下一餐在 120 分钟内开始时为 nil
     var rise2h: Double?
     /// 高于基线部分的增量曲线下面积（mmol/L·min），低于基线的部分记为 0
     var iAUC: Double
@@ -30,6 +30,11 @@ nonisolated struct MealGlucoseResponse: Hashable, Sendable {
     var curve: [Double?]
     /// 开始前 45 分钟到开始后 180 分钟内有低于 3.9 的读数
     var hasLowReading: Bool
+    /// 下一餐开始前血糖已从峰值回落（两个峰），窗口截到下一餐开始，这里是截止时距开始的分钟数；没截时为 nil
+    var cutOffMinutes: Double? = nil
+    /// 和前后的餐连着吃、只有一个峰：下一餐开始时还在这个峰上，或者上一餐不久前才吃、开始时血糖已在上升。
+    /// 这时的升幅是几餐一起的
+    var sharesPeakWithAdjacentMeal = false
 
     /// 检测到的开始时间比记录时间早多少分钟；按记录时间计算时为 0
     var startShiftMinutes: Int {
@@ -45,6 +50,10 @@ nonisolated enum MealGlucoseResponseCalculator {
     /// 窗口内至少要有的读数条数；只有指尖血的餐达不到，不计算
     static let minimumWindowReadings = 10
     static let maximumEndGapMinutes = 10.0
+    /// 窗口因相邻的餐变短时，至少要有的读数条数
+    static let minimumShortWindowReadings = 3
+    /// 比到目前为止的最高值低这么多，视为这个峰已经回落（团队设定；CGM 本身波动约 0.2～0.3）
+    static let peakDropThreshold = 0.5
 
     // 起点检测，参数为团队设定，说明见 meal_response.py 的 detect_onset
     static let onsetLookbackMinutes = 60.0
@@ -56,18 +65,52 @@ nonisolated enum MealGlucoseResponseCalculator {
 
     /// 发给模型的曲线：开始前 45 分钟到开始后 180 分钟，每 15 分钟一个点
     static let curveOffsets = Array(stride(from: -45, through: 180, by: 15))
-    /// 与 `GlucoseTargetRange.standard` 的下限一致
-    static let lowThreshold = 3.9
+    /// 固定的低血糖安全线，不跟随用户设置的目标下限
+    static let lowThreshold = GlucoseTargetRange.hypoglycemiaThreshold
 
-    /// 窗口内数据不足（只有指尖血、传感器断档或不在数据范围内）时返回 nil
-    static func response(recordedStart: Date, points: [GlucosePoint]) -> MealGlucoseResponse? {
+    /// 窗口内数据不足（只有指尖血、传感器断档或不在数据范围内）时返回 nil。
+    /// `previousMealStart` / `nextMealStart` 是前后最近的另一餐的记录时间，见 `adjacentMealStarts(of:among:)`；
+    /// 不传时下一餐的峰会被算到这一餐头上。
+    /// 下一餐在 120 分钟内开始时：开始前血糖已从峰值回落，说明是两个峰，窗口截到下一餐开始；
+    /// 还在同一个峰上，说明是连着吃，窗口截到这个峰回落时，升幅算几餐一起的
+    static func response(
+        recordedStart: Date,
+        points: [GlucosePoint],
+        previousMealStart: Date? = nil,
+        nextMealStart: Date? = nil
+    ) -> MealGlucoseResponse? {
         let points = points.sorted { $0.time < $1.time }
-        let start = onset(recordedStart: recordedStart, sortedPoints: points)
-        let end = start.addingTimeInterval(windowMinutes * 60)
+        let start = onset(recordedStart: recordedStart, sortedPoints: points, previousMealStart: previousMealStart)
+        var end = start.addingTimeInterval(windowMinutes * 60)
+        var cutOffMinutes: Double?
+        var sharesPeak = false
+        var nextMealInWindow = false
+        if let nextMealStart, nextMealStart > start, nextMealStart < end {
+            nextMealInWindow = true
+            let dropped = peakEnd(from: start, to: end, sortedPoints: points)
+            if let dropped, dropped <= nextMealStart {
+                end = nextMealStart
+                cutOffMinutes = minutes(from: start, to: nextMealStart)
+            } else {
+                sharesPeak = true
+                if let dropped { end = dropped }
+            }
+        }
+        if let previousMealStart,
+           minutes(from: previousMealStart, to: start) < onsetLookbackMinutes,
+           isRising(at: start, sortedPoints: points) {
+            sharesPeak = true
+        }
+        let windowLength = minutes(from: start, to: end)
+        // 窗口被截短时，读数条数要求按比例降低
+        let requiredReadings = max(
+            minimumShortWindowReadings,
+            Int((Double(minimumWindowReadings) * windowLength / windowMinutes).rounded(.up))
+        )
 
         let pre = points.filter { $0.time >= start.addingTimeInterval(-baselineMinutes * 60) && $0.time <= start }
         let window = points.filter { $0.time >= start && $0.time <= end }
-        guard window.count >= minimumWindowReadings,
+        guard window.count >= requiredReadings,
               let last = window.last,
               minutes(from: last.time, to: end) <= maximumEndGapMinutes else {
             return nil
@@ -102,20 +145,50 @@ nonisolated enum MealGlucoseResponseCalculator {
             peak: peakPoint.value,
             peakRise: peakPoint.value - baseline,
             peakMinutes: minutes(from: start, to: peakPoint.time),
-            rise2h: value(at: end, sortedPoints: points).map { $0 - baseline },
+            rise2h: nextMealInWindow ? nil : value(at: end, sortedPoints: points).map { $0 - baseline },
             iAUC: iAUC,
             curve: curveOffsets.map { value(at: start.addingTimeInterval(Double($0) * 60), sortedPoints: points) },
             hasLowReading: points.contains {
                 $0.time >= lowCheckStart && $0.time <= lowCheckEnd && $0.value < lowThreshold
-            }
+            },
+            cutOffMinutes: cutOffMinutes,
+            sharesPeakWithAdjacentMeal: sharesPeak
         )
     }
 
-    /// 记录时间偏晚时，把血糖开始上升前的最低点当作实际开始时间；只会往前调，不会往后调
-    static func onset(recordedStart: Date, sortedPoints points: [GlucosePoint]) -> Date {
-        guard let now = value(at: recordedStart, sortedPoints: points),
-              let before = value(at: recordedStart.addingTimeInterval(-baselineMinutes * 60), sortedPoints: points),
-              now - before >= onsetRisingThreshold else {
+    /// 前后最近的另一餐的记录时间；时间相同的记录不算
+    static func adjacentMealStarts(of recordedStart: Date, among starts: [Date]) -> (previous: Date?, next: Date?) {
+        (starts.filter { $0 < recordedStart }.max(), starts.filter { $0 > recordedStart }.min())
+    }
+
+    /// 从 `start` 起第一条比之前最高值低 `peakDropThreshold` 以上的读数时间；到 `end` 都没回落时为 nil
+    static func peakEnd(from start: Date, to end: Date, sortedPoints points: [GlucosePoint]) -> Date? {
+        var highest = -Double.infinity
+        for point in points where point.time >= start && point.time <= end {
+            highest = max(highest, point.value)
+            if point.value <= highest - peakDropThreshold {
+                return point.time
+            }
+        }
+        return nil
+    }
+
+    /// `time` 前 15 分钟内已经升了 `onsetRisingThreshold` 以上
+    static func isRising(at time: Date, sortedPoints points: [GlucosePoint]) -> Bool {
+        guard let now = value(at: time, sortedPoints: points),
+              let before = value(at: time.addingTimeInterval(-baselineMinutes * 60), sortedPoints: points) else {
+            return false
+        }
+        return now - before >= onsetRisingThreshold
+    }
+
+    /// 记录时间偏晚时，把血糖开始上升前的最低点当作实际开始时间；只会往前调，不会往后调。
+    /// 上一餐在回看范围内时，记录前的上升可能来自上一餐，不调整
+    static func onset(recordedStart: Date, sortedPoints points: [GlucosePoint], previousMealStart: Date? = nil) -> Date {
+        if let previousMealStart, minutes(from: previousMealStart, to: recordedStart) < onsetLookbackMinutes {
+            return recordedStart
+        }
+        guard isRising(at: recordedStart, sortedPoints: points) else {
             return recordedStart
         }
         let lookback = points.filter {

@@ -6,46 +6,84 @@
 import Foundation
 import Observation
 
-/// 新版「所有血糖记录」：最近 30 天的读数按天分组，最新的在前
+/// 新版「血糖记录」：一次看一天，最新的在前。CGM 一天有上百条读数，按天翻页比一次列出 30 天好找。
+/// 可往前翻的天数与血糖页一致
 @MainActor
 @Observable
 final class GlucoseLogViewModel {
-    static let dayCount = 30
-
-    struct DayGroup: Identifiable {
-        let day: Date
-        let readings: [GlucoseReading]
-
-        var id: Date { day }
-    }
+    static let maxLookbackDays = GlucoseTrendViewModel.maxLookbackDays
 
     private let repository: any GlucoseRepository
     private let calendar: Calendar
+    private let now: () -> Date
 
+    /// 正在看的那天（0 点）。nil 表示跟随今天，过了午夜会自动换到新的一天
+    private(set) var anchorDay: Date?
     private(set) var readings: [GlucoseReading] = []
     private(set) var errorMessage: String?
 
-    init(repository: any GlucoseRepository, calendar: Calendar = .current) {
+    /// `initialDay` 为 nil 时从今天开始
+    init(
+        repository: any GlucoseRepository,
+        initialDay: Date? = nil,
+        calendar: Calendar = .current,
+        now: @escaping () -> Date = { .now }
+    ) {
         self.repository = repository
         self.calendar = calendar
+        self.now = now
+        if let initialDay {
+            select(day: initialDay)
+        }
     }
 
-    var dayGroups: [DayGroup] {
-        Dictionary(grouping: readings) { calendar.startOfDay(for: $0.measuredAt) }
-            .map { DayGroup(day: $0.key, readings: $0.value.sorted { $0.measuredAt > $1.measuredAt }) }
-            .sorted { $0.day > $1.day }
+    // MARK: 日期
+
+    var today: Date { calendar.startOfDay(for: now()) }
+
+    var selectedDay: Date { anchorDay ?? today }
+
+    var isShowingToday: Bool { anchorDay == nil }
+
+    var earliestDay: Date {
+        calendar.date(byAdding: .day, value: -Self.maxLookbackDays, to: today) ?? today
     }
 
-    func load(now: Date = .now) {
-        let today = calendar.startOfDay(for: now)
-        guard let start = calendar.date(byAdding: .day, value: -(Self.dayCount - 1), to: today),
-              let end = calendar.date(byAdding: .day, value: 1, to: today) else {
+    var canGoBack: Bool { selectedDay > earliestDay }
+
+    var canGoForward: Bool { !isShowingToday }
+
+    func showPrevious() {
+        guard canGoBack, let previous = calendar.date(byAdding: .day, value: -1, to: selectedDay) else { return }
+        select(day: previous)
+    }
+
+    func showNext() {
+        guard canGoForward, let next = calendar.date(byAdding: .day, value: 1, to: selectedDay) else { return }
+        select(day: next)
+    }
+
+    func showToday() {
+        anchorDay = nil
+    }
+
+    /// 选定某一天，超出可选范围时取最近的边界
+    func select(day date: Date) {
+        let day = min(max(calendar.startOfDay(for: date), earliestDay), today)
+        anchorDay = day == today ? nil : day
+    }
+
+    // MARK: 读写
+
+    func load() {
+        guard let end = calendar.date(byAdding: .day, value: 1, to: selectedDay) else {
             readings = []
             return
         }
 
         do {
-            readings = try repository.readings(in: DateInterval(start: start, end: end))
+            readings = try repository.readings(in: DateInterval(start: selectedDay, end: end))
+                .sorted { $0.measuredAt > $1.measuredAt }
             errorMessage = nil
         } catch {
             readings = []

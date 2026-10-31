@@ -6,47 +6,70 @@
 import SwiftData
 import SwiftUI
 
-/// 最近 30 天的所有血糖读数，按天分组。手动记录可以左滑删除、点按修改；健康 App 的记录只读
+/// 血糖记录：一次看一天，顶部可以切换日期。手动记录可以左滑删除、点按修改；健康 App 的记录只读
 struct GlucoseLogView: View {
     let dependencies: AppDependencies
     let healthDataRevision: Int
 
     @State private var viewModel: GlucoseLogViewModel
     @State private var editor: GlucoseEditorPresentation?
+    @State private var isShowingDayPicker = false
 
-    init(dependencies: AppDependencies, healthDataRevision: Int) {
-        _viewModel = State(initialValue: GlucoseLogViewModel(repository: dependencies.glucoseRepository))
+    /// `initialDay` 为 nil 时从今天开始
+    init(dependencies: AppDependencies, healthDataRevision: Int, initialDay: Date? = nil) {
+        _viewModel = State(initialValue: GlucoseLogViewModel(
+            repository: dependencies.glucoseRepository,
+            initialDay: initialDay
+        ))
         self.dependencies = dependencies
         self.healthDataRevision = healthDataRevision
     }
 
     var body: some View {
         List {
-            if let errorMessage = viewModel.errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
+            Section {
+                DateNavigatorBar(
+                    title: viewModel.selectedDay.formatted(MealsDiaryView.subtitleStyle),
+                    pageLabel: "一天",
+                    isShowingToday: viewModel.isShowingToday,
+                    canGoBack: viewModel.canGoBack,
+                    canGoForward: viewModel.canGoForward,
+                    onTapTitle: { isShowingDayPicker = true },
+                    onToday: viewModel.showToday,
+                    onPrevious: viewModel.showPrevious,
+                    onNext: viewModel.showNext
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
 
-            ForEach(viewModel.dayGroups) { group in
+            if let errorMessage = viewModel.errorMessage {
                 Section {
-                    ForEach(group.readings) { reading in
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                }
+            } else if viewModel.readings.isEmpty {
+                // 放在列表里而不是 overlay：overlay 会盖住上面的日期行，点不到
+                Section {
+                    ContentUnavailableView(
+                        "这一天没有血糖记录",
+                        systemImage: "drop",
+                        description: Text(emptyDescription)
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                Section {
+                    ForEach(viewModel.readings) { reading in
                         row(reading)
                     }
                 } header: {
-                    Text(group.day.formatted(MealsDiaryView.subtitleStyle))
+                    Text("\(viewModel.readings.count) 次读数")
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .overlay {
-            if viewModel.readings.isEmpty, viewModel.errorMessage == nil {
-                ContentUnavailableView(
-                    "最近 \(GlucoseLogViewModel.dayCount) 天没有血糖记录",
-                    systemImage: "drop",
-                    description: Text("点右上角的加号手动记录。")
-                )
-            }
-        }
+        .listSectionSpacing(.compact)
         .navigationTitle("血糖记录")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -59,7 +82,24 @@ struct GlucoseLogView: View {
                 viewModel.load()
             }
         }
+        .sheet(isPresented: $isShowingDayPicker) {
+            DayPickerSheet(
+                selectedDate: viewModel.selectedDay,
+                range: viewModel.earliestDay...viewModel.today
+            ) { day in
+                viewModel.select(day: day)
+            }
+        }
+        .onChange(of: viewModel.selectedDay) {
+            withAnimation(.smooth) { viewModel.load() }
+        }
         .task(id: healthDataRevision) { viewModel.load() }
+    }
+
+    private var emptyDescription: String {
+        viewModel.isShowingToday
+            ? "点右上角的加号手动记录。"
+            : "健康 App 每次同步最近 30 天，更早的记录只有之前同步过的才会保留。"
     }
 
     @ViewBuilder

@@ -66,6 +66,7 @@ struct MealReviewPayloadBuilderTests {
         #expect(dinner.curve.mmol.count == 16)
         #expect(dinner.foods.first?.category == "精制谷物")
         #expect(dinner.glycemicLoad == 41.1)
+        #expect(Self.payload.meals.first?.carbsLevel == nil)
         #expect(Self.payload.meals.first?.glycemicLoad == nil)
     }
 
@@ -76,6 +77,8 @@ struct MealReviewPayloadBuilderTests {
         #expect(comparisons.map(\.title) == ["按餐次", "按主食", "按蔬菜"])
         #expect(comparisons.map(\.id) == ["C1", "C2", "C3"])
         #expect(comparisons.allSatisfy { !$0.isSufficient })
+        // 午餐 2.6、晚餐 5.5，相差超过 0.5
+        #expect(comparisons[0].isClearDifference)
         #expect(comparisons[0].groups.map(\.key) == ["lunch", "dinner"])
         #expect(comparisons[0].groups[0].mealIds == ["M1", "M3"])
         #expect(comparisons[1].groups.map(\.mealIds) == [["M2"], ["M3"]])
@@ -91,6 +94,23 @@ struct MealReviewPayloadBuilderTests {
         #expect(values["M1.startShift"] == nil)
         #expect(values["C1.lunch"] == "2.6")
         #expect(values["C1.lunch.count"] == "2")
+        #expect(values["M2.riseRank"] == "3 餐中第 1 高")
+        #expect(Self.payload.meals.first { $0.id == "M2" }?.peakRiseRank == 1)
+    }
+
+    @Test("餐数不足 6 餐时不总结规律")
+    func noPatternForFewMeals() {
+        #expect(Self.payload.pattern == nil)
+        #expect(Self.payload.placeholderValues["P.size"] == nil)
+    }
+
+    @Test("发给模型的 JSON 不含开始时间修正和样本不足的比较")
+    func modelJSONOmitsShiftAndInsufficientComparisons() throws {
+        let json = try MealReviewPrompt.payloadJSON(Self.payload)
+
+        #expect(!json.contains("startShift"))
+        #expect(json.contains("peakRiseRank"))
+        #expect(json.contains(#""comparisons":[]"#))
     }
 
     @Test("发送的 JSON 不含精确日期、备注和补充描述")
