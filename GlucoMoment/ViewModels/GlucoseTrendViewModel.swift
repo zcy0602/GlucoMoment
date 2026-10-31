@@ -13,16 +13,24 @@ final class GlucoseTrendViewModel {
     let title = "血糖趋势"
     let rangeOptions = TrendRange.allCases
 
+    /// 最多往前翻多少天。健康同步每次只查最近 30 天，更早的只有本地留存的历史
+    static let maxLookbackDays = 90
+
     private let repository: any GlucoseRepository
+    private let now: () -> Date
+    private let calendar = Calendar.current
 
     var selectedRange: TrendRange = .today
+    /// 时间段的最后一天（当天 0 点）。nil 表示跟随今天，过了午夜会自动换到新的一天
+    private(set) var anchorDay: Date?
     private(set) var readings: [GlucoseReading] = []
     private(set) var errorMessage: String?
     private(set) var isLoading = false
     var isShowingError = false
 
-    init(repository: any GlucoseRepository) {
+    init(repository: any GlucoseRepository, now: @escaping () -> Date = { .now }) {
         self.repository = repository
+        self.now = now
     }
 
     var metrics: [DashboardMetric] {
@@ -114,7 +122,7 @@ final class GlucoseTrendViewModel {
         defer { isLoading = false }
 
         do {
-            readings = try repository.readings(in: selectedInterval)
+            readings = try repository.readings(in: interval)
             errorMessage = nil
             isShowingError = false
         } catch {
@@ -149,21 +157,62 @@ final class GlucoseTrendViewModel {
         }
     }
 
-    private var selectedInterval: DateInterval {
-        let calendar = Calendar.current
-        let todayStart = calendar.startOfDay(for: .now)
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? .distantFuture
-        let dayCount: Int
+    // MARK: 时间段与翻页
+
+    /// 当前查看的时间段：截止到 `endDay`（含当天）的 1 / 7 / 30 天，与「健康」App 一致
+    var interval: DateInterval {
+        let end = calendar.date(byAdding: .day, value: 1, to: endDay) ?? endDay
+        let start = calendar.date(byAdding: .day, value: -(dayCount - 1), to: endDay) ?? endDay
+        return DateInterval(start: start, end: end)
+    }
+
+    var today: Date { calendar.startOfDay(for: now()) }
+
+    /// 时间段的最后一天
+    var endDay: Date { anchorDay ?? today }
+
+    var isShowingToday: Bool { anchorDay == nil }
+
+    /// 最早能选到的截止日
+    var earliestEndDay: Date {
+        calendar.date(byAdding: .day, value: -Self.maxLookbackDays, to: today) ?? today
+    }
+
+    var canGoBack: Bool {
+        guard let previous = calendar.date(byAdding: .day, value: -dayCount, to: endDay) else { return false }
+        return previous >= earliestEndDay
+    }
+
+    var canGoForward: Bool { !isShowingToday }
+
+    /// 往前翻一整段：日翻 1 天，周翻 7 天，月翻 30 天
+    func showPrevious() {
+        guard canGoBack, let previous = calendar.date(byAdding: .day, value: -dayCount, to: endDay) else { return }
+        select(endDay: previous)
+    }
+
+    /// 往后翻一整段，最多到今天
+    func showNext() {
+        guard canGoForward, let next = calendar.date(byAdding: .day, value: dayCount, to: endDay) else { return }
+        select(endDay: next)
+    }
+
+    func showToday() {
+        anchorDay = nil
+    }
+
+    /// 选定时间段的最后一天，超出范围时取最近的边界
+    func select(endDay date: Date) {
+        let day = min(max(calendar.startOfDay(for: date), earliestEndDay), today)
+        anchorDay = day == today ? nil : day
+    }
+
+    private var dayCount: Int {
         switch selectedRange {
-        case .today:
-            dayCount = 1
-        case .week:
-            dayCount = 7
-        case .month:
-            dayCount = 30
+        case .today: 1
+        case .week: 7
+        case .month: 30
         }
-        let start = calendar.date(byAdding: .day, value: -(dayCount - 1), to: todayStart) ?? .distantPast
-        return DateInterval(start: start, end: tomorrow)
     }
 
     private func formatted(_ value: Double) -> String {

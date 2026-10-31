@@ -16,6 +16,7 @@ struct MealsDiaryView: View {
     /// 只用于「下一餐提示」：按今天已记录的餐套用规则，没有触发时显示当前餐次的通用建议
     @State private var tipViewModel: MealLogViewModel
     @State private var captureSource: MealPhotoSource?
+    @State private var isShowingDatePicker = false
 
     init(dependencies: AppDependencies, healthDataRevision: Int) {
         _viewModel = State(initialValue: MealsDiaryViewModel(repository: dependencies.mealRepository))
@@ -27,6 +28,13 @@ struct MealsDiaryView: View {
     var body: some View {
         List {
             Section {
+                dateButton
+                    // 这个分组没有左右边距，手动留出与大标题相同的 16pt
+                    .padding(.horizontal, 16)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
                 DayStrip(
                     days: viewModel.days,
                     selectedDate: viewModel.selectedDate,
@@ -37,7 +45,10 @@ struct MealsDiaryView: View {
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
+            // 日期条占满屏幕宽度，左右滑动时不会被分组边距裁掉
+            .listSectionMargins(.horizontal, 0)
 
             if let errorMessage = viewModel.errorMessage {
                 Section {
@@ -81,8 +92,12 @@ struct MealsDiaryView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        // 列表顶部默认留白偏大，日期行紧贴大标题下方
+        .contentMargins(.top, 0, for: .scrollContent)
         .navigationTitle("饮食")
-        .navigationSubtitle(viewModel.selectedDate.formatted(Self.subtitleStyle))
+        // 大标题和右上角按钮同一行，与 App Store、音乐一致
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -130,6 +145,44 @@ struct MealsDiaryView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// 日期条上方：左边是选中的日期，点按弹出日历快速跳到某一天；右边「今天」一键回到今天
+    private var dateButton: some View {
+        HStack {
+            Button {
+                isShowingDatePicker = true
+            } label: {
+                // 不用 Label：它的图标和文字间距偏大
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                    Text(viewModel.selectedDate.formatted(Self.subtitleStyle))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.brandTeal)
+                .contentTransition(.numericText())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityHint("选择要查看的日期")
+
+            Spacer()
+
+            Button("今天") {
+                withAnimation(.snappy) { viewModel.select(viewModel.today) }
+            }
+            .font(.subheadline.weight(.semibold))
+            .buttonStyle(.borderless)
+            .tint(Color.brandTeal)
+            .disabled(viewModel.isSelectedToday)
+        }
+        .sheet(isPresented: $isShowingDatePicker) {
+            DayPickerSheet(
+                selectedDate: viewModel.selectedDate,
+                range: (viewModel.days.first ?? viewModel.today)...viewModel.today
+            ) { day in
+                withAnimation(.snappy) { viewModel.select(day) }
             }
         }
     }
@@ -192,21 +245,6 @@ struct MealsDiaryView: View {
         } description: {
             if viewModel.isSelectedToday {
                 Text("拍下这一餐，AI 会估算营养和稳糖分。")
-            }
-        } actions: {
-            if viewModel.isSelectedToday {
-                Button {
-                    captureSource = .camera
-                } label: {
-                    Label("拍照记录", systemImage: "camera.fill")
-                        .padding(.horizontal, 8)
-                }
-                .buttonStyle(.glassProminent)
-                .controlSize(.large)
-
-                Button("从相册选择") {
-                    captureSource = .library
-                }
             }
         }
     }
@@ -281,16 +319,24 @@ struct DayStrip: View {
     private let calendar = Calendar.current
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(days, id: \.self) { day in
-                    dayCell(day)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(days, id: \.self) { day in
+                        dayCell(day)
+                            .id(day)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
+            .defaultScrollAnchor(.trailing)
+            // 从日历选了较早的日期时，把它滚到可见位置
+            .onChange(of: selectedDate) {
+                guard let day = days.first(where: { calendar.isDate($0, inSameDayAs: selectedDate) }) else { return }
+                withAnimation(.snappy) { proxy.scrollTo(day, anchor: .center) }
+            }
         }
-        .defaultScrollAnchor(.trailing)
     }
 
     private func dayCell(_ day: Date) -> some View {

@@ -12,7 +12,7 @@ struct GlucoseSparkline: View {
     /// 横轴范围；为 nil 时按数据自身范围
     var timeDomain: ClosedRange<Date>?
 
-    private let range = GlucoseTargetRange.standard
+    private var range: GlucoseTargetRange { .current }
 
     var body: some View {
         Chart {
@@ -29,7 +29,8 @@ struct GlucoseSparkline: View {
                 )
                 .interpolationMethod(.catmullRom)
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                .foregroundStyle(Color.glucoseTint)
+                .foregroundStyle(range.curveGradient(yDomain: yDomain))
+                .alignsMarkStylesWithPlotArea()
             }
 
             if let last = readings.last {

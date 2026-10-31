@@ -382,8 +382,8 @@ struct PostMealGlucoseCard: View {
     private var chart: some View {
         Chart {
             RectangleMark(
-                yStart: .value("下限", GlucoseTargetRange.standard.lowerBound),
-                yEnd: .value("上限", GlucoseTargetRange.standard.upperBound)
+                yStart: .value("下限", GlucoseTargetRange.current.lowerBound),
+                yEnd: .value("上限", GlucoseTargetRange.current.upperBound)
             )
             .foregroundStyle(Color.targetBandFill)
 
@@ -393,7 +393,8 @@ struct PostMealGlucoseCard: View {
                     y: .value("血糖", point.value)
                 )
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(Color.glucoseTint)
+                .foregroundStyle(GlucoseTargetRange.current.curveGradient(yDomain: yDomain))
+                .alignsMarkStylesWithPlotArea()
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
             }
 
@@ -429,12 +430,12 @@ struct PostMealGlucoseCard: View {
                     x: .value("分钟", response.peakMinutes),
                     y: .value("血糖", response.peak)
                 )
-                .foregroundStyle(Color.glucoseTint)
+                .foregroundStyle(GlucoseTargetRange.current.curveTint(for: response.peak))
                 .symbolSize(60)
                 .annotation(position: .top, spacing: 4) {
                     Text(DisplayFormat.glucose(response.peak))
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.glucoseTint)
+                        .foregroundStyle(GlucoseTargetRange.current.curveTint(for: response.peak))
                 }
             }
         }

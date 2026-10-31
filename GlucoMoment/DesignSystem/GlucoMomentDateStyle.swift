@@ -28,6 +28,26 @@ enum GlucoMomentDateStyle {
         .minute(.twoDigits)
         .locale(mainlandChinaLocale)
 
+    /// 纯数字的「11/1 01:55」，用在血糖页最新读数下方。计算属性，跟随当前时区
+    static var numericMonthDayTime: Date.VerbatimFormatStyle {
+        Date.VerbatimFormatStyle(
+            format: "\(month: .defaultDigits)/\(day: .defaultDigits) \(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)):\(minute: .twoDigits)",
+            locale: mainlandChinaLocale,
+            timeZone: .current,
+            calendar: .current
+        )
+    }
+
+    /// 纯数字的「11/1」，用在复盘覆盖的日期范围。计算属性，跟随当前时区
+    static var numericMonthDay: Date.VerbatimFormatStyle {
+        Date.VerbatimFormatStyle(
+            format: "\(month: .defaultDigits)/\(day: .defaultDigits)",
+            locale: mainlandChinaLocale,
+            timeZone: .current,
+            calendar: .current
+        )
+    }
+
     static let weekday = Date.FormatStyle()
         .weekday(.narrow)
         .locale(mainlandChinaLocale)

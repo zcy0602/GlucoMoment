@@ -29,6 +29,43 @@ extension Color {
     }
 }
 
+extension GlucoseTargetRange {
+    /// 血糖曲线的分段着色：低于下限红色、高于上限橙色、范围内用血糖色，在越界处直接切换颜色。
+    /// 用在 `LineMark` / `BarMark` 上时要加 `.alignsMarkStylesWithPlotArea()`，让渐变按整个绘图区对齐；
+    /// `yDomain` 必须和图表的 `chartYScale(domain:)` 一致，否则分界会错位
+    func curveGradient(yDomain: ClosedRange<Double>) -> LinearGradient {
+        let span = max(yDomain.upperBound - yDomain.lowerBound, 0.001)
+        func location(_ value: Double) -> CGFloat {
+            CGFloat(min(max((value - yDomain.lowerBound) / span, 0), 1))
+        }
+        let low = location(lowerBound)
+        let high = location(upperBound)
+        let lowTint = GlucoseState.low.tint
+        let highTint = GlucoseState.elevated.tint
+        return LinearGradient(
+            stops: [
+                .init(color: lowTint, location: 0),
+                .init(color: lowTint, location: low),
+                .init(color: .glucoseTint, location: low),
+                .init(color: .glucoseTint, location: high),
+                .init(color: highTint, location: high),
+                .init(color: highTint, location: 1)
+            ],
+            startPoint: .bottom,
+            endPoint: .top
+        )
+    }
+
+    /// 单个点（例如餐后峰值）的颜色，与 `curveGradient` 一致
+    func curveTint(for value: Double) -> Color {
+        switch state(for: value) {
+        case .low: GlucoseState.low.tint
+        case .inRange: .glucoseTint
+        case .elevated: GlucoseState.elevated.tint
+        }
+    }
+}
+
 extension View {
     /// 新版界面统一的卡片底：分组背景上的圆角块
     func cardBackground(padding: CGFloat = 16) -> some View {

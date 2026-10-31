@@ -36,8 +36,6 @@ struct GlucoseTargetView: View {
                 Section {
                     preview
                         .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 12, trailing: 16))
-                } footer: {
-                    Text("目标范围会显示在各个图表上，并用于计算「目标范围内」的比例。请遵照医嘱调整。")
                 }
 
                 Section {
@@ -47,8 +45,6 @@ struct GlucoseTargetView: View {
                             Text(option.title).tag(Optional(option))
                         }
                     }
-                } footer: {
-                    Text("只用来填入推荐值，保存在这台 iPhone 上，不会发送给识别服务。")
                 }
 
                 Section {
@@ -56,10 +52,9 @@ struct GlucoseTargetView: View {
                     recommendationRow
                 } header: {
                     Text("目标范围（mmol/L）")
-                } footer: {
-                    Text("低于 \(DisplayFormat.glucose(GlucoseTargetRange.hypoglycemiaThreshold)) mmol/L 的读数仍按低血糖处理，不受这里的下限影响。老年人或容易发生低血糖的人，请和医生确认目标。")
                 }
             }
+            .listSectionSpacing(.compact)
             .navigationTitle("血糖目标范围")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -110,7 +105,8 @@ struct GlucoseTargetView: View {
                         y: .value("血糖", reading.value)
                     )
                     .interpolationMethod(.catmullRom)
-                    .foregroundStyle(Color.glucoseTint)
+                    .foregroundStyle(draftRange.curveGradient(yDomain: yDomain))
+                    .alignsMarkStylesWithPlotArea()
                     .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
 
