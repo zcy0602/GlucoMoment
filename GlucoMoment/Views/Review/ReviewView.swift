@@ -8,7 +8,7 @@ import SwiftData
 import SwiftUI
 
 /// 「复盘」标签页：把每一餐吃了什么和吃完血糖怎么变放在一起看。
-/// 从上到下是概览、稳糖分与实测升幅的对照、每一餐的餐后反应、AI 复盘，最后是计算方法
+/// 从上到下是概览、AI 复盘、稳糖分与实测升幅的对照、每一餐的餐后反应，最后是计算方法
 struct ReviewView: View {
     let dependencies: AppDependencies
     let healthDataRevision: Int
@@ -16,6 +16,11 @@ struct ReviewView: View {
     @State private var viewModel: MealResponseOverviewViewModel
     @State private var reviewViewModel: MealReviewViewModel
     @State private var isShowingReviewConsent = false
+    /// 餐后反应列表是否展开全部；不保存，每次进来都是折叠的
+    @State private var isShowingAllMeals = false
+
+    /// 餐后反应列表折叠时显示的条数
+    private static let collapsedMealCount = 5
 
     init(dependencies: AppDependencies, healthDataRevision: Int) {
         _viewModel = State(initialValue: MealResponseOverviewViewModel(
@@ -38,6 +43,9 @@ struct ReviewView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // 整页都按同一个时间范围统计，只在第一节写一次
+                CardSectionTitle("概览", trailing: "最近 \(MealResponseOverviewViewModel.reviewDays) 天")
+
                 if let errorMessage = viewModel.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle")
                         .font(.subheadline)
@@ -47,10 +55,19 @@ struct ReviewView: View {
 
                 overviewCard
 
+                // 先给结论，下面的散点图和每餐列表是依据
+                CardSectionTitle("AI 复盘")
+                MealReviewInsightCard(viewModel: reviewViewModel) {
+                    isShowingReviewConsent = true
+                }
+
                 CardSectionTitle("稳糖分与实测升幅")
                 comparisonCard
 
-                CardSectionTitle("每一餐", trailing: "最近 \(MealResponseOverviewViewModel.reviewDays) 天")
+                CardSectionTitle(
+                    "餐后反应",
+                    trailing: viewModel.entries.isEmpty ? nil : "共 \(viewModel.entries.count) 餐"
+                )
                 if !viewModel.entries.isEmpty {
                     Picker("排序", selection: $viewModel.sortOrder) {
                         ForEach(MealResponseOverviewViewModel.SortOrder.allCases) { order in
@@ -61,11 +78,6 @@ struct ReviewView: View {
                 }
                 mealsCard
 
-                CardSectionTitle("AI 复盘", trailing: "最近 \(MealReviewPayloadBuilder.reviewDays) 天")
-                MealReviewInsightCard(viewModel: reviewViewModel) {
-                    isShowingReviewConsent = true
-                }
-
                 methodCard
             }
             .padding(.horizontal, 16)
@@ -73,6 +85,8 @@ struct ReviewView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("复盘")
+        // 大标题和右上角按钮同一行，与 App Store、音乐一致
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 SettingsToolbarButton(dependencies: dependencies)
@@ -184,11 +198,16 @@ struct ReviewView: View {
         .cardBackground()
     }
 
-    // MARK: 每一餐
+    // MARK: 餐后反应
 
     @ViewBuilder
     private var mealsCard: some View {
-        let entries = viewModel.sortedEntries
+        let allEntries = viewModel.sortedEntries
+        // 先排序再截取，折叠时看到的是「最近 5 餐」或「升得最多的 5 餐」
+        let isCollapsible = allEntries.count > Self.collapsedMealCount
+        let entries = isCollapsible && !isShowingAllMeals
+            ? Array(allEntries.prefix(Self.collapsedMealCount))
+            : allEntries
         if entries.isEmpty {
             ContentUnavailableView {
                 Label("最近 \(MealResponseOverviewViewModel.reviewDays) 天没有饮食记录", systemImage: "fork.knife")
@@ -214,6 +233,27 @@ struct ReviewView: View {
                             .padding(.leading, 60)
                             .padding(.vertical, 8)
                     }
+                }
+
+                if isCollapsible {
+                    Divider()
+                        .padding(.vertical, 8)
+                    Button {
+                        withAnimation(.snappy) {
+                            isShowingAllMeals.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(isShowingAllMeals ? "收起" : "显示全部 \(allEntries.count) 餐")
+                            Image(systemName: isShowingAllMeals ? "chevron.up" : "chevron.down")
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
                 }
             }
             .cardBackground()
@@ -357,7 +397,8 @@ private struct PostMealSparkline: View {
                     y: .value("血糖", point.value)
                 )
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(Color.glucoseTint)
+                .foregroundStyle(GlucoseTargetRange.current.curveGradient(yDomain: yDomain))
+                .alignsMarkStylesWithPlotArea()
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
         }
@@ -377,7 +418,8 @@ private struct PostMealSparkline: View {
     }
 }
 
-/// AI 复盘卡片：按 `MealReviewViewModel.State` 显示开启引导、进度、生成按钮或结果
+/// AI 复盘卡片：按 `MealReviewViewModel.State` 显示开启引导、进度、生成按钮或结果；
+/// 结果下方是重新生成按钮（有新的餐时附提示）和历史复盘入口
 struct MealReviewInsightCard: View {
     let viewModel: MealReviewViewModel
     let onEnable: () -> Void
@@ -415,15 +457,9 @@ struct MealReviewInsightCard: View {
                     title: "可以生成复盘了",
                     text: "最近 \(MealReviewPayloadBuilder.reviewDays) 天有 \(mealCount) 餐带完整的餐后血糖。"
                 )
-                Button {
+                largeButton("生成复盘", systemImage: "sparkles") {
                     Task { await viewModel.generate() }
-                } label: {
-                    Label("生成复盘", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(.insightTint)
-                .controlSize(.large)
 
             case .generating:
                 HStack(spacing: 12) {
@@ -442,10 +478,9 @@ struct MealReviewInsightCard: View {
 
             case .failed(let message):
                 intro(title: "暂时无法复盘", text: message)
-                Button("重试", systemImage: "arrow.clockwise") {
+                largeButton("重试", systemImage: "arrow.clockwise") {
                     Task { await viewModel.load() }
                 }
-                .buttonStyle(.bordered)
             }
         }
         .cardBackground()
@@ -467,67 +502,138 @@ struct MealReviewInsightCard: View {
 
     @ViewBuilder
     private func loaded(review: MealReview, generatedAt: Date, serviceError: String?) -> some View {
-        if let notice = review.safetyNotice {
-            Label(notice, systemImage: "exclamationmark.shield.fill")
+        MealReviewItemsView(review: review)
+
+        Text(serviceError == nil ? review.originText : "AI 暂时不可用，以下由本机模板生成")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 2)
+
+        // 有新的餐时在按钮上方说明为什么值得重新生成；餐不够时按钮变灰并写明原因
+        if viewModel.newMealCount > 0, viewModel.canGenerate {
+            Label("又有 \(viewModel.newMealCount) 餐新的餐后血糖，可以重新生成", systemImage: "sparkles")
                 .font(.subheadline)
-                .foregroundStyle(GlucoseState.low.tint)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(GlucoseState.low.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(Color.insightTint)
+        } else if !viewModel.canGenerate {
+            Text("最近 \(MealReviewPayloadBuilder.reviewDays) 天带完整餐后血糖的餐不足 \(MealReviewViewModel.minimumMealCount) 餐，暂时不能重新生成")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        largeButton("重新生成", systemImage: "arrow.clockwise") {
+            Task { await viewModel.generate() }
+        }
+        .disabled(!viewModel.canGenerate)
 
-        ForEach(Array(review.items.enumerated()), id: \.offset) { index, item in
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("\(index + 1)")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(Color.insightTint, in: Circle())
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.text)
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(item.source)
-                        .font(.caption)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(coverage(generatedAt: generatedAt))
+            Text("仅供参考，不是诊断。调整饮食或用药请咨询医生。")
+        }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+        .fixedSize(horizontal: false, vertical: true)
+
+        if !viewModel.history.isEmpty {
+            Divider()
+            NavigationLink {
+                MealReviewHistoryView(viewModel: viewModel)
+            } label: {
+                HStack {
+                    Label("历史复盘", systemImage: "clock.arrow.circlepath")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("\(viewModel.history.count) 份")
                         .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
+                .font(.subheadline)
+                .contentShape(Rectangle())
             }
-            if index < review.items.count - 1 {
-                Divider()
-                    .padding(.leading, 34)
-            }
+            .buttonStyle(.plain)
         }
-
-        HStack {
-            Text(origin(review: review, serviceError: serviceError))
-            Spacer()
-            Button("重新生成", systemImage: "arrow.clockwise") {
-                Task { await viewModel.generate() }
-            }
-            .labelStyle(.iconOnly)
-            .tint(.insightTint)
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.top, 2)
-
-        Text("仅供参考，不是诊断。调整饮食或用药请咨询医生。生成于 \(generatedAt.formatted(GlucoMomentDateStyle.monthDayTime))")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
     }
 
-    private func origin(review: MealReview, serviceError: String?) -> String {
-        if serviceError != nil {
-            return "AI 暂时不可用，以下由本机模板生成"
+    /// 卡片里的主要操作：生成、重新生成、重试都用同一种大按钮
+    private func largeButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
         }
-        if review.isFallback {
-            return "AI 的结果未通过校验，以下由本机模板生成"
-        }
-        return "AI 撰写 · 数字由本机计算"
+        .buttonStyle(.glassProminent)
+        .tint(.insightTint)
+        .controlSize(.large)
+    }
+
+    /// 例如「根据 10/18–11/1 的 12 餐 · 生成于 11月1日 14:30」；本地模板没有保存，只写生成时间
+    private func coverage(generatedAt: Date) -> String {
+        let generated = "生成于 \(generatedAt.formatted(GlucoMomentDateStyle.monthDayTime))"
+        guard let saved = viewModel.shownReview, let range = saved.coverageText else { return generated }
+        return "\(range) · \(generated)"
     }
 }
 
+/// 复盘的安全提醒和逐条内容，卡片和历史详情共用
+struct MealReviewItemsView: View {
+    let review: MealReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let notice = review.safetyNotice {
+                Label(notice, systemImage: "exclamationmark.shield.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(GlucoseState.low.tint)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(GlucoseState.low.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+
+            ForEach(Array(review.items.enumerated()), id: \.offset) { index, item in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("\(index + 1)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(Color.insightTint, in: Circle())
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.text)
+                            .font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(item.source)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if index < review.items.count - 1 {
+                    Divider()
+                        .padding(.leading, 34)
+                }
+            }
+        }
+    }
+}
+
+extension MealReview {
+    /// 结果卡底部说明这份复盘由谁写
+    var originText: String {
+        isFallback ? "AI 的结果未通过校验，以下由本机模板生成" : "AI 撰写 · 数字由本机计算"
+    }
+}
+
+extension SavedMealReview {
+    /// 例如「根据 10/18–11/1 的 12 餐」；从旧版缓存迁移来的记录没有用餐时间，只写餐数
+    var coverageText: String? {
+        let count = mealCount > 0 ? "的 \(mealCount) 餐" : ""
+        guard let firstMealAt, let lastMealAt else {
+            return mealCount > 0 ? "根据 \(mealCount) 餐" : nil
+        }
+        let first = firstMealAt.formatted(GlucoMomentDateStyle.numericMonthDay)
+        let last = lastMealAt.formatted(GlucoMomentDateStyle.numericMonthDay)
+        return "根据 \(first == last ? first : "\(first)–\(last)")\(count)"
+    }
+}
 
 #Preview {
     let dependencies = AppDependencies.preview()
