@@ -56,11 +56,12 @@ struct MealsDiaryView: View {
                         .foregroundStyle(.secondary)
                 }
             } else if viewModel.meals.isEmpty {
+                // 建议放在空状态上面：没记录时这是唯一有内容的卡，放上面一眼能看到
+                tipSection
                 Section {
                     emptyState
                         .listRowBackground(Color.clear)
                 }
-                tipSection
             } else {
                 Section {
                     daySummary

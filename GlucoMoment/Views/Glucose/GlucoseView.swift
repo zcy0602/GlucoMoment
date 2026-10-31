@@ -52,7 +52,12 @@ struct GlucoseView: View {
                 }
 
                 NavigationLink {
-                    GlucoseLogView(dependencies: dependencies, healthDataRevision: healthDataRevision)
+                    // 从图表正在看的那天（时间段的最后一天）开始
+                    GlucoseLogView(
+                        dependencies: dependencies,
+                        healthDataRevision: healthDataRevision,
+                        initialDay: viewModel.anchorDay
+                    )
                 } label: {
                     HStack {
                         Label("所有血糖记录", systemImage: "list.bullet")
@@ -162,7 +167,9 @@ struct GlucoseView: View {
         SummaryCard(
             title: "最新",
             systemImage: "drop.fill",
-            tint: .glucoseTint
+            tint: .glucoseTint,
+            // 渐变底试过，暂不用；改为 true 即可恢复
+            isHighlighted: false
         ) {
             latestContent
         }
@@ -213,53 +220,18 @@ struct GlucoseView: View {
 
     /// 分段控件下方：左边是当前时间段，点按弹出日历；右边「今天」和前后翻页，与饮食页的日期行一致
     private var periodNavigator: some View {
-        HStack(spacing: 4) {
-            Button {
-                isShowingDayPicker = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                    Text(periodTitle)
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.brandTeal)
-                .contentTransition(.numericText())
-            }
-            .buttonStyle(.borderless)
-            .accessibilityHint(viewModel.selectedRange == .today ? "选择要查看的日期" : "选择时间段的最后一天")
-
-            Spacer(minLength: 8)
-
-            Button("今天") {
-                withAnimation(.snappy) { viewModel.showToday() }
-            }
-            .font(.subheadline.weight(.semibold))
-            .buttonStyle(.borderless)
-            .tint(Color.brandTeal)
-            .disabled(viewModel.isShowingToday)
-            .padding(.trailing, 6)
-
-            pageButton("chevron.left", label: "前\(pageLabel)", enabled: viewModel.canGoBack) {
-                viewModel.showPrevious()
-            }
-            pageButton("chevron.right", label: "后\(pageLabel)", enabled: viewModel.canGoForward) {
-                viewModel.showNext()
-            }
-        }
-        .padding(.horizontal, 4)
-    }
-
-    private func pageButton(_ systemImage: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(label, systemImage: systemImage) {
-            withAnimation(.snappy) { action() }
-        }
-        .labelStyle(.iconOnly)
-        .font(.subheadline.weight(.semibold))
-        .frame(width: 32, height: 32)
-        .contentShape(Rectangle())
-        .buttonStyle(.borderless)
-        .tint(Color.brandTeal)
-        .disabled(!enabled)
+        DateNavigatorBar(
+            title: periodTitle,
+            pageLabel: pageLabel,
+            isShowingToday: viewModel.isShowingToday,
+            canGoBack: viewModel.canGoBack,
+            canGoForward: viewModel.canGoForward,
+            titleHint: viewModel.selectedRange == .today ? "选择要查看的日期" : "选择时间段的最后一天",
+            onTapTitle: { isShowingDayPicker = true },
+            onToday: viewModel.showToday,
+            onPrevious: viewModel.showPrevious,
+            onNext: viewModel.showNext
+        )
     }
 
     private var pageLabel: String {
@@ -270,7 +242,7 @@ struct GlucoseView: View {
         }
     }
 
-    /// 例如「今天」「10月31日 周六」「10月26日–11月1日」；不在今年时带上年份
+    /// 例如「11月1日 周日」「10月26日–11月1日」，今天也写日期；不在今年时带上年份
     private var periodTitle: String {
         let calendar = Calendar.current
         let interval = viewModel.interval
@@ -282,7 +254,7 @@ struct GlucoseView: View {
         }
 
         if viewModel.selectedRange == .today {
-            return viewModel.isShowingToday ? "今天" : lastDay.formatted(style.weekday(.abbreviated))
+            return lastDay.formatted(style.weekday(.abbreviated))
         }
         return "\(interval.start.formatted(style))–\(lastDay.formatted(style))"
     }
@@ -330,14 +302,9 @@ struct GlucoseView: View {
     private var statsCard: some View {
         let summary = GlucoseMetricsCalculator.calculate(readings: viewModel.readings, targetRange: .current)
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("\(summary.readingCount) 次读数")
-                Spacer(minLength: 8)
-                // 第二行三个数共用一个单位，避免窄屏上挤不下
-                Text("血糖单位 mmol/L")
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+            Text("\(summary.readingCount) 次读数")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 14) {
                 GridRow {
@@ -348,9 +315,9 @@ struct GlucoseView: View {
                 Divider()
                     .gridCellColumns(3)
                 GridRow {
-                    stat("平均", value: glucoseText(summary.average))
-                    stat("最高", value: glucoseText(summary.maximum))
-                    stat("最低", value: glucoseText(summary.minimum))
+                    stat("平均", value: glucoseText(summary.average), unit: "mmol/L")
+                    stat("最高", value: glucoseText(summary.maximum), unit: "mmol/L")
+                    stat("最低", value: glucoseText(summary.minimum), unit: "mmol/L")
                 }
             }
         }

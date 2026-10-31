@@ -77,6 +77,24 @@ extension View {
                 in: RoundedRectangle(cornerRadius: 22, style: .continuous)
             )
     }
+
+    /// 带渐变的卡片底，沿用旧版今日页血糖卡：浅色是白 → 薄荷绿，深色是卡片灰 → 暗青。
+    /// 用在每页最上面那张卡，让它比下面的卡更醒目
+    func gradientCardBackground(padding: CGFloat = 16) -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(padding)
+            .background(CardGradient(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+private struct CardGradient: ShapeStyle {
+    func resolve(in environment: EnvironmentValues) -> LinearGradient {
+        let colors: [Color] = environment.colorScheme == .dark
+            ? [Color(.secondarySystemGroupedBackground), Color.brandTeal.opacity(0.32)]
+            : [.white, Color.brandMint.opacity(0.75)]
+        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
 }
 
 /// 新版界面的数字格式。营养素取整，血糖保留一位小数

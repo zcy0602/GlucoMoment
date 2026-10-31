@@ -12,6 +12,8 @@ struct SummaryCard<Content: View>: View {
     let tint: Color
     var detail: String?
     var showsChevron = false
+    /// 为 true 时用渐变底（`gradientCardBackground`），用在页面最上面的卡
+    var isHighlighted = false
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -34,7 +36,19 @@ struct SummaryCard<Content: View>: View {
             }
             content
         }
-        .cardBackground()
+        .modifier(SummaryCardBackground(isHighlighted: isHighlighted))
+    }
+}
+
+private struct SummaryCardBackground: ViewModifier {
+    let isHighlighted: Bool
+
+    func body(content: Content) -> some View {
+        if isHighlighted {
+            content.gradientCardBackground()
+        } else {
+            content.cardBackground()
+        }
     }
 }
 
