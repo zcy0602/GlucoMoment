@@ -91,10 +91,10 @@ struct MealReviewValidatorTests {
         #expect(review.isFallback)
         #expect(review.rejectedCount == 1)
         #expect(review.items.count == MealReviewTemplate.items(for: Self.payload).count)
-        #expect(review.items.count == 3)
+        #expect(review.items.count == 2)
         #expect(review.items.allSatisfy { !$0.text.contains("{") && !$0.text.contains("}") })
         #expect(review.items[0].text.hasPrefix("10-21（周三）晚餐的白米饭套餐峰值升幅 5.5"))
-        #expect(review.items[1].text.contains("约 18 分钟"))
+        #expect(review.items[1].text.contains("最平稳"))
     }
 
     @Test("没有低读数的餐时不显示安全提醒")
@@ -102,6 +102,28 @@ struct MealReviewValidatorTests {
         var payload = Self.payload
         payload.excludedLowMealCount = 0
         #expect(MealReviewValidator.safetyNotice(for: payload) == nil)
+    }
+
+    @Test("规律那一条不管排第几都放到最前面，依据写升幅排名；只建议加餐的说法被拒，餐次名不拒")
+    func patternItemComesFirst() throws {
+        var payload = Self.payload
+        let counts = MealReviewPayload.Pattern.Counts(
+            refinedGrain: 1, addedSugar: 0, refinedOrSugar: 1, protein: 0, vegetable: 1, proteinOrVegetable: 1
+        )
+        payload.pattern = MealReviewPayload.Pattern(
+            groupSize: 1, topMealIds: ["M2"], bottomMealIds: ["M3"], top: counts, bottom: counts,
+            moreInTop: ["refinedGrain"], moreInBottom: [], snackCount: 2, mealCount: 3
+        )
+        let draft = Self.draft([
+            Self.item("{M2.when}的{M2.title}升了 {M2.peakRise}。下次先吃菜。", guideline: "G3b"),
+            Self.item("最近 {P.total} 餐里有 {P.snack} 次加餐。下次加餐选无糖的。", guideline: "G5"),
+        ])
+
+        let review = MealReviewValidator.review(from: draft, payload: payload)
+
+        #expect(review.items.map(\.text) == ["最近 3 餐里有 2 次加餐。下次加餐选无糖的。", "10-21（周三）晚餐的白米饭套餐升了 5.5。下次先吃菜。"])
+        #expect(review.items[0].source == "依据：最近 3 餐的升幅排名 · 食养指南原则五")
+        #expect(MealReviewValidator.check(Self.item("{M2.when}之后建议加餐。", guideline: "G7"), payload: payload).failure == .bannedTerm("建议加餐"))
     }
 
     private static func item(_ text: String, mealIds: [String] = [], guideline: String) -> MealReviewDraftItem {

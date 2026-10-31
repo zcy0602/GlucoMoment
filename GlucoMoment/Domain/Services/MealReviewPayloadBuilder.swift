@@ -49,10 +49,19 @@ nonisolated struct MealReviewPayload: Codable, Hashable, Sendable {
         var foods: [Food]
         var glycemicLoad: Double?
         var score: Int?
-        /// 检测到的开始时间比记录早多少分钟；0 表示按记录时间计算
-        var startShiftMinutes: Int
+        /// 检测到的开始时间比记录早多少分钟；0 表示按记录时间计算。
+        /// 不发给模型（模型曾把方向说反），详情页会用固定文案说明
+        var startShiftMinutes: Int = 0
         var response: Response
         var curve: Curve
+        /// 峰值升幅在这批餐里从高到低排第几，1 是最高；模型说"较高""较低"要和它一致
+        var peakRiseRank: Int = 0
+        /// 本机餐食记录的 id，只在 App 里用来判断复盘之后有没有新的餐；不编码，不发给模型
+        var recordID: UUID?
+
+        private nonisolated enum CodingKeys: String, CodingKey {
+            case id, date, weekday, period, title, foods, glycemicLoad, score, response, curve, peakRiseRank
+        }
     }
 
     nonisolated struct Group: Codable, Hashable, Sendable {
@@ -71,9 +80,44 @@ nonisolated struct MealReviewPayload: Codable, Hashable, Sendable {
         var isSufficient: Bool
     }
 
+    /// 升幅最高和最低的几餐在食物上的共同点，计数在本地算好，供第一条"规律"引用
+    nonisolated struct Pattern: Codable, Hashable, Sendable {
+        nonisolated struct Counts: Codable, Hashable, Sendable {
+            var refinedGrain: Int
+            var addedSugar: Int
+            var refinedOrSugar: Int
+            var protein: Int
+            var vegetable: Int
+            var proteinOrVegetable: Int
+
+            /// 键与字段名一致，占位符和 moreInTop / moreInBottom 都用它
+            var byCategory: KeyValuePairs<String, Int> {
+                [
+                    "refinedGrain": refinedGrain, "addedSugar": addedSugar, "refinedOrSugar": refinedOrSugar,
+                    "protein": protein, "vegetable": vegetable, "proteinOrVegetable": proteinOrVegetable,
+                ]
+            }
+        }
+
+        /// 高、低两组各几餐
+        var groupSize: Int
+        var topMealIds: [String]
+        var bottomMealIds: [String]
+        var top: Counts
+        var bottom: Counts
+        /// 最高那组比最低那组多至少 `minimumPatternDifference` 餐的类别（Counts 的字段名）
+        var moreInTop: [String]
+        /// 最低那组比最高那组多至少 `minimumPatternDifference` 餐的类别
+        var moreInBottom: [String]
+        var snackCount: Int
+        var mealCount: Int
+    }
+
     var summary: Summary
     var meals: [Meal]
     var comparisons: [Comparison]
+    /// 餐数少于 `MealReviewPayloadBuilder.minimumPatternMealCount`，或高低两组没有明显不同的类别时为 nil
+    var pattern: Pattern?
     /// 窗口内有低于 3.9 的读数、没有发给模型的餐数；App 另外显示固定的安全提示
     var excludedLowMealCount: Int
 
@@ -88,11 +132,32 @@ nonisolated struct MealReviewPayload: Codable, Hashable, Sendable {
             values["\(meal.id).peakRise"] = Self.decimal(meal.response.peakRise)
             values["\(meal.id).peakMinutes"] = "\(meal.response.peakMinutes)"
             values["\(meal.id).iAUC"] = "\(meal.response.iAUC)"
+            if meal.peakRiseRank > 0 {
+                // 排在后半的写"第几低"，避免"20 餐中第 16 高"这种说法
+                let fromBottom = meals.count - meal.peakRiseRank + 1
+                values["\(meal.id).riseRank"] = meal.peakRiseRank <= fromBottom
+                    ? "\(meals.count) 餐中第 \(meal.peakRiseRank) 高"
+                    : "\(meals.count) 餐中第 \(fromBottom) 低"
+            }
+            values["\(meal.id).carbs"] = "\(Int(meal.foods.reduce(0) { $0 + $1.carbohydratesGrams }.rounded()))"
+            if let score = meal.score {
+                values["\(meal.id).score"] = "\(score)"
+            }
             if let rise2h = meal.response.rise2h {
                 values["\(meal.id).rise2h"] = Self.decimal(rise2h)
             }
             if meal.startShiftMinutes > 0 {
                 values["\(meal.id).startShift"] = "\(meal.startShiftMinutes)"
+            }
+        }
+        if let pattern {
+            values["P.size"] = "\(pattern.groupSize)"
+            values["P.snack"] = "\(pattern.snackCount)"
+            values["P.total"] = "\(pattern.mealCount)"
+            for (key, counts) in [("top", pattern.top), ("bottom", pattern.bottom)] {
+                for (category, count) in counts.byCategory {
+                    values["P.\(key).\(category)"] = "\(count)"
+                }
             }
         }
         for comparison in comparisons {
@@ -116,12 +181,16 @@ nonisolated enum MealReviewPayloadBuilder {
     static let maximumMealCount = 20
     /// 分组比较时每组至少要有的餐数
     static let minimumGroupSize = 3
-    /// 与 `GlucoseTargetRange.standard` 一致
-    static let targetRange = 3.9...10.0
+    /// 至少这么多餐才总结规律；高、低两组各取 1/3，最多 5 餐
+    static let minimumPatternMealCount = 6
+    static let maximumPatternGroupSize = 5
+    /// 高低两组某类食物至少差这么多餐才算规律
+    static let minimumPatternDifference = 2
 
     static func build(
         meals: [MealRecord],
         points: [GlucosePoint],
+        targetRange: GlucoseTargetRange = .standard,
         calendar: Calendar = .current
     ) -> MealReviewPayload {
         var excludedLowMealCount = 0
@@ -145,16 +214,67 @@ nonisolated enum MealReviewPayloadBuilder {
         }
         analyzed = Array(analyzed.suffix(maximumMealCount))
 
-        let entries = analyzed.enumerated().map { index, item in
+        var entries = analyzed.enumerated().map { index, item in
             makeMeal(id: "M\(index + 1)", meal: item.meal, response: item.response, calendar: calendar)
+        }
+        let ranking = entries.indices.sorted { entries[$0].response.peakRise > entries[$1].response.peakRise }
+        for (rank, index) in ranking.enumerated() {
+            entries[index].peakRiseRank = rank + 1
         }
         let scored = zip(entries, analyzed).map { entry, item in (entry: entry, breakdown: item.meal.stableScore) }
 
         return MealReviewPayload(
-            summary: summary(of: points, calendar: calendar),
+            summary: summary(of: points, targetRange: targetRange, calendar: calendar),
             meals: entries,
             comparisons: comparisons(of: scored),
+            pattern: pattern(of: entries),
             excludedLowMealCount: excludedLowMealCount
+        )
+    }
+
+    /// 按食物类别数：精制主食、添加糖、蛋白质（肉蛋鱼豆或乳制品）、蔬菜；没有类别的餐都不计入
+    private static func pattern(of meals: [MealReviewPayload.Meal]) -> MealReviewPayload.Pattern? {
+        guard meals.count >= minimumPatternMealCount else { return nil }
+        let size = min(maximumPatternGroupSize, meals.count / 3)
+        let ranked = meals.sorted { $0.peakRiseRank < $1.peakRiseRank }
+        let top = Array(ranked.prefix(size))
+        let bottom = Array(ranked.suffix(size))
+
+        func counts(_ group: [MealReviewPayload.Meal]) -> MealReviewPayload.Pattern.Counts {
+            func has(_ meal: MealReviewPayload.Meal, _ categories: Set<FoodCategory>) -> Bool {
+                meal.foods.contains { $0.category.flatMap(FoodCategory.init(rawValue:)).map(categories.contains) ?? false }
+            }
+            let refined = group.map { has($0, [.refinedGrain]) }
+            let sugar = group.map { has($0, [.addedSugar]) }
+            let protein = group.map { has($0, [.protein, .dairy]) }
+            let vegetable = group.map { has($0, [.vegetable]) }
+            return MealReviewPayload.Pattern.Counts(
+                refinedGrain: refined.count { $0 },
+                addedSugar: sugar.count { $0 },
+                refinedOrSugar: zip(refined, sugar).count { $0 || $1 },
+                protein: protein.count { $0 },
+                vegetable: vegetable.count { $0 },
+                proteinOrVegetable: zip(protein, vegetable).count { $0 || $1 }
+            )
+        }
+
+        let topCounts = counts(top)
+        let bottomCounts = counts(bottom)
+        let pairs = zip(topCounts.byCategory, bottomCounts.byCategory)
+        let moreInTop = pairs.filter { $0.value - $1.value >= minimumPatternDifference }.map(\.0.key)
+        let moreInBottom = pairs.filter { $1.value - $0.value >= minimumPatternDifference }.map(\.0.key)
+        guard !moreInTop.isEmpty || !moreInBottom.isEmpty else { return nil }
+
+        return MealReviewPayload.Pattern(
+            groupSize: size,
+            topMealIds: top.map(\.id),
+            bottomMealIds: bottom.map(\.id),
+            top: topCounts,
+            bottom: bottomCounts,
+            moreInTop: moreInTop,
+            moreInBottom: moreInBottom,
+            snackCount: meals.count { $0.period == MealPeriod.snack.rawValue },
+            mealCount: meals.count
         )
     }
 
@@ -194,11 +314,16 @@ nonisolated enum MealReviewPayloadBuilder {
             curve: MealReviewPayload.Curve(
                 minutesFromStart: MealGlucoseResponseCalculator.curveOffsets,
                 mmol: response.curve.map { $0.map(rounded) }
-            )
+            ),
+            recordID: meal.id
         )
     }
 
-    private static func summary(of points: [GlucosePoint], calendar: Calendar) -> MealReviewPayload.Summary {
+    private static func summary(
+        of points: [GlucosePoint],
+        targetRange: GlucoseTargetRange,
+        calendar: Calendar
+    ) -> MealReviewPayload.Summary {
         let values = points.map(\.value)
         let inRange = values.count { targetRange.contains($0) }
         return MealReviewPayload.Summary(

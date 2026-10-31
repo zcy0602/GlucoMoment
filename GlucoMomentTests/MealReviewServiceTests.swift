@@ -117,8 +117,10 @@ struct MealReviewServiceTests {
         let payload = MealReviewPayloadBuilderTests.payload
         let draft = try await DemoFoodAnalysisService().review(payload)
 
-        #expect(draft.items.map(\.mealIds) == [["M2"], ["M2"], []])
-        #expect(draft.items.last?.comparisonIds == ["C1"])
+        let lowest = try #require(payload.meals.min { $0.response.peakRise < $1.response.peakRise })
+        // 最高和最平稳的两餐；比较样本都不足，不写比较那一条
+        #expect(draft.items.map(\.mealIds) == [["M2"], [lowest.id]])
+        #expect(draft.items.allSatisfy { $0.comparisonIds.isEmpty })
         let placeholders = try Regex(#"\{([^}]+)\}"#)
         for item in draft.items {
             for match in item.text.matches(of: placeholders) {

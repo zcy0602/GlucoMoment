@@ -91,6 +91,23 @@ struct MealReviewPayloadBuilderTests {
         #expect(values["M1.startShift"] == nil)
         #expect(values["C1.lunch"] == "2.6")
         #expect(values["C1.lunch.count"] == "2")
+        #expect(values["M2.riseRank"] == "3 餐中第 1 高")
+        #expect(Self.payload.meals.first { $0.id == "M2" }?.peakRiseRank == 1)
+    }
+
+    @Test("餐数不足 6 餐时不总结规律")
+    func noPatternForFewMeals() {
+        #expect(Self.payload.pattern == nil)
+        #expect(Self.payload.placeholderValues["P.size"] == nil)
+    }
+
+    @Test("发给模型的 JSON 不含开始时间修正和样本不足的比较")
+    func modelJSONOmitsShiftAndInsufficientComparisons() throws {
+        let json = try MealReviewPrompt.payloadJSON(Self.payload)
+
+        #expect(!json.contains("startShift"))
+        #expect(json.contains("peakRiseRank"))
+        #expect(json.contains(#""comparisons":[]"#))
     }
 
     @Test("发送的 JSON 不含精确日期、备注和补充描述")
