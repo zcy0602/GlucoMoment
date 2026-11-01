@@ -14,6 +14,15 @@ nonisolated enum FoodAnalysisConnectionMode: String, CaseIterable, Identifiable,
 
     var id: String { rawValue }
 
+    /// 设置页可选的识别方式。演示模式只在 Debug 包里提供，Release 包只能选自定义 API 或自建代理
+    static var selectableCases: [FoodAnalysisConnectionMode] {
+        #if DEBUG
+        allCases
+        #else
+        [.directAPI, .proxy]
+        #endif
+    }
+
     var title: String {
         switch self {
         case .demo: "演示模式"
@@ -184,7 +193,11 @@ final class FoodAnalysisSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        mode = FoodAnalysisConnectionMode(rawValue: defaults.string(forKey: Key.mode) ?? "") ?? .demo
+        // 没保存过时默认用自建代理；Release 包里之前存的演示模式也改为自建代理
+        let storedMode = FoodAnalysisConnectionMode(rawValue: defaults.string(forKey: Key.mode) ?? "")
+        mode = storedMode.flatMap {
+            FoodAnalysisConnectionMode.selectableCases.contains($0) ? $0 : nil
+        } ?? .proxy
         apiProvider = FoodAnalysisAPIProvider(
             rawValue: defaults.string(forKey: Key.apiProvider) ?? ""
         ) ?? .dashScope

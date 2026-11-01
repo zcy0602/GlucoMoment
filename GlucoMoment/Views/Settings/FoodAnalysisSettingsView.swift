@@ -21,7 +21,7 @@ struct FoodAnalysisSettingsView: View {
         Form {
             Section {
                 Picker("识别方式", selection: $settings.mode) {
-                    ForEach(FoodAnalysisConnectionMode.allCases) { mode in
+                    ForEach(FoodAnalysisConnectionMode.selectableCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }

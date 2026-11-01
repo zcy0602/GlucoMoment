@@ -373,6 +373,16 @@ struct FoodAnalysisServiceTests {
     }
 
     @MainActor
+    @Test("没保存过识别方式时默认用自建代理")
+    func defaultsToProxy() throws {
+        let suiteName = "GlucoMomentTests.DefaultMode.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(FoodAnalysisSettings(defaults: defaults).mode == .proxy)
+    }
+
+    @MainActor
     @Test("模式保存在普通偏好中且代理使用预置地址")
     func settingsPersistence() throws {
         let suiteName = "GlucoMomentTests.Settings.\(UUID().uuidString)"
