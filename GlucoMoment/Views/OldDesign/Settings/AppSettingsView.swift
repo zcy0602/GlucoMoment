@@ -70,9 +70,11 @@ struct AppSettingsView: View {
                 Text("开启后，趋势页会出现「近期复盘」：把最近 14 天的餐后血糖摘要交给当前的识别服务，写出可以用血糖验证的小建议，不发送照片。关闭时会删除本机保存的复盘。")
             }
 
-            Section("界面") {
-                Toggle(isOn: $usesRedesign) {
-                    Label("使用新版界面", systemImage: "sparkles.rectangle.stack")
+            if InterfacePreference.allowsLegacyDesign {
+                Section("界面") {
+                    Toggle(isOn: $usesRedesign) {
+                        Label("使用新版界面", systemImage: "sparkles.rectangle.stack")
+                    }
                 }
             }
 

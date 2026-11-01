@@ -13,7 +13,7 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .today
     @State private var healthKitCoordinator: HealthKitCoordinator
     @Environment(\.scenePhase) private var scenePhase
-    /// 新版界面开关，在两版的设置页里都能切换
+    /// 新版界面开关，在两版的设置页里都能切换（仅 Debug 包）
     @AppStorage(InterfacePreference.redesignKey) private var usesRedesign = true
 
     init(dependencies: AppDependencies) {
@@ -23,7 +23,7 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if usesRedesign {
+            if usesRedesign || !InterfacePreference.allowsLegacyDesign {
                 RootTabView(
                     dependencies: dependencies,
                     healthDataRevision: healthKitCoordinator.dataRevision

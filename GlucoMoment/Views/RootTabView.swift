@@ -6,9 +6,18 @@
 import SwiftData
 import SwiftUI
 
-/// 新旧界面切换的开关。默认使用新版；也可以用启动参数 `-GlucoMoment.UI.Redesign NO` 临时切回旧版
+/// 新旧界面切换的开关。默认使用新版；也可以用启动参数 `-GlucoMoment.UI.Redesign NO` 临时切回旧版。
+/// 旧版只在 Debug 包里能切换，Release 包一律用新版，设置页也不显示开关
 enum InterfacePreference {
     static let redesignKey = "GlucoMoment.UI.Redesign"
+
+    static var allowsLegacyDesign: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
 }
 
 /// 新版界面的三个标签页

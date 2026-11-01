@@ -113,12 +113,14 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                Toggle(isOn: $usesRedesign) {
-                    row(icon: "rectangle.on.rectangle", tint: .indigo, title: "使用新版界面") { EmptyView() }
+            if InterfacePreference.allowsLegacyDesign {
+                Section {
+                    Toggle(isOn: $usesRedesign) {
+                        row(icon: "rectangle.on.rectangle", tint: .indigo, title: "使用新版界面") { EmptyView() }
+                    }
+                } footer: {
+                    Text("关闭后回到旧版界面，可随时在设置里切换回来。")
                 }
-            } footer: {
-                Text("关闭后回到旧版界面，可随时在设置里切换回来。")
             }
         }
         .navigationTitle("设置")
