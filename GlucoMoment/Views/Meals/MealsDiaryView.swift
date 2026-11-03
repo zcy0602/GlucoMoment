@@ -251,7 +251,7 @@ struct MealsDiaryView: View {
     }
 }
 
-/// 饮食列表的一行：缩略图、名称、时间与热量，右侧稳糖分
+/// 饮食列表的一行：缩略图、名称、时间与碳水，右侧稳糖分
 struct MealListRow: View {
     let meal: MealRecord
     let photoStore: any MealPhotoStoring
@@ -271,11 +271,8 @@ struct MealListRow: View {
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                // 营养用灰色胶囊，和带颜色的餐次区分主次
-                HStack(spacing: 6) {
-                    capsule("\(DisplayFormat.whole(meal.caloriesKcal)) 千卡", tint: .secondary)
-                    capsule("碳水 \(DisplayFormat.whole(meal.carbohydratesGrams)) 克", tint: .secondary)
-                }
+                // 营养只留碳水，用灰色胶囊，和带颜色的餐次区分主次
+                capsule("碳水 \(DisplayFormat.whole(meal.carbohydratesGrams)) 克", tint: .secondary)
             }
 
             Spacer(minLength: 8)

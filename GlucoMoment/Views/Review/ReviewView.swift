@@ -236,24 +236,25 @@ struct ReviewView: View {
                 }
 
                 if isCollapsible {
+                    // 和下面「计算方法」卡的行一样：文字靠左，箭头靠右，分隔线上下各 12
                     Divider()
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
                     Button {
                         withAnimation(.snappy) {
                             isShowingAllMeals.toggle()
                         }
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack {
                             Text(isShowingAllMeals ? "收起" : "显示全部 \(allEntries.count) 餐")
+                                .foregroundStyle(Color.accentColor)
+                            Spacer()
                             Image(systemName: isShowingAllMeals ? "chevron.up" : "chevron.down")
                                 .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
                 }
             }
             .cardBackground()
@@ -375,14 +376,27 @@ private struct MealResponseRow: View {
     }
 }
 
-/// 一餐前后的小曲线（开始前 45 分钟到开始后 180 分钟），虚线是基线
+/// 一餐前后的小曲线（开始前 45 分钟到开始后 180 分钟），虚线是基线，圆点是最高点
 private struct PostMealSparkline: View {
     let response: MealGlucoseResponse
 
-    private var points: [(minutes: Int, value: Double)] {
-        zip(MealGlucoseResponseCalculator.curveOffsets, response.curve).compactMap { offset, value in
-            value.map { (offset, $0) }
+    private static let xDomain = Double(MealGlucoseResponseCalculator.curveOffsets.first ?? -45)...Double(MealGlucoseResponseCalculator.curveOffsets.last ?? 180)
+
+    /// 每 15 分钟一个点，再插入实测最高点：最高点不一定落在 15 分钟的整点上，插进去曲线才会经过它
+    private var points: [(minutes: Double, value: Double)] {
+        var points: [(minutes: Double, value: Double)] = zip(MealGlucoseResponseCalculator.curveOffsets, response.curve).compactMap { offset, value in
+            value.map { (minutes: Double(offset), value: $0) }
         }
+        if let peak = peakPoint {
+            points.removeAll { $0.minutes == peak.minutes }
+            points.append(peak)
+            points.sort { $0.minutes < $1.minutes }
+        }
+        return points
+    }
+
+    private var peakPoint: (minutes: Double, value: Double)? {
+        Self.xDomain.contains(response.peakMinutes) ? (response.peakMinutes, response.peak) : nil
     }
 
     var body: some View {
@@ -401,11 +415,20 @@ private struct PostMealSparkline: View {
                 .alignsMarkStylesWithPlotArea()
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
+
+            if let peak = peakPoint {
+                PointMark(
+                    x: .value("分钟", peak.minutes),
+                    y: .value("血糖", peak.value)
+                )
+                .symbolSize(22)
+                .foregroundStyle(GlucoseTargetRange.current.curveTint(for: peak.value))
+            }
         }
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartLegend(.hidden)
-        .chartXScale(domain: (MealGlucoseResponseCalculator.curveOffsets.first ?? -45)...(MealGlucoseResponseCalculator.curveOffsets.last ?? 180))
+        .chartXScale(domain: Self.xDomain)
         .chartYScale(domain: yDomain)
         .accessibilityHidden(true)
     }
@@ -500,8 +523,33 @@ struct MealReviewInsightCard: View {
         }
     }
 
+    /// 有新的餐、可以重新生成时，提示和按钮放在最上面，先告诉用户下面是旧的结果
+    private var hasNewMeals: Bool {
+        viewModel.newMealCount > 0 && viewModel.canGenerate
+    }
+
     @ViewBuilder
     private func loaded(review: MealReview, generatedAt: Date, serviceError: String?) -> some View {
+        if hasNewMeals {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    IconBadge(systemImage: "sparkles", tint: .insightTint, size: 36)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("又有 \(viewModel.newMealCount) 餐新的餐后血糖")
+                            .font(.headline)
+                        Text("下面是上一次的复盘，重新生成会把新的餐算进去。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                largeButton("重新生成", systemImage: "arrow.clockwise") {
+                    Task { await viewModel.generate() }
+                }
+            }
+            Divider()
+        }
+
         MealReviewItemsView(review: review)
 
         Text(serviceError == nil ? review.originText : "AI 暂时不可用，以下由本机模板生成")
@@ -509,21 +557,19 @@ struct MealReviewInsightCard: View {
             .foregroundStyle(.secondary)
             .padding(.top, 2)
 
-        // 有新的餐时在按钮上方说明为什么值得重新生成；餐不够时按钮变灰并写明原因
-        if viewModel.newMealCount > 0, viewModel.canGenerate {
-            Label("又有 \(viewModel.newMealCount) 餐新的餐后血糖，可以重新生成", systemImage: "sparkles")
-                .font(.subheadline)
-                .foregroundStyle(Color.insightTint)
-        } else if !viewModel.canGenerate {
-            Text("最近 \(MealReviewPayloadBuilder.reviewDays) 天带完整餐后血糖的餐不足 \(MealReviewViewModel.minimumMealCount) 餐，暂时不能重新生成")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        // 有新的餐时按钮已在最上面；没有新的餐时按钮留在底部，餐不够时变灰并写明原因
+        if !hasNewMeals {
+            if !viewModel.canGenerate {
+                Text("最近 \(MealReviewPayloadBuilder.reviewDays) 天带完整餐后血糖的餐不足 \(MealReviewViewModel.minimumMealCount) 餐，暂时不能重新生成")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            largeButton("重新生成", systemImage: "arrow.clockwise") {
+                Task { await viewModel.generate() }
+            }
+            .disabled(!viewModel.canGenerate)
         }
-        largeButton("重新生成", systemImage: "arrow.clockwise") {
-            Task { await viewModel.generate() }
-        }
-        .disabled(!viewModel.canGenerate)
 
         VStack(alignment: .leading, spacing: 2) {
             Text(coverage(generatedAt: generatedAt))
