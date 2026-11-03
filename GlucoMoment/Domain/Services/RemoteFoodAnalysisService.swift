@@ -90,6 +90,7 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
                 guard error.isRetryable, attempt < maximumRetryCount else { throw error }
             } catch let error as URLError {
                 lastError = error
+                if error.code == .timedOut { throw FoodAnalysisError.timedOut }
                 guard attempt < maximumRetryCount else {
                     throw FoodAnalysisError.networkUnavailable
                 }
@@ -111,8 +112,8 @@ actor RemoteFoodAnalysisService: FoodAnalysisService {
         let boundary = "GlucoMoment-\(requestID.uuidString)"
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        // 最多 6 张照片时模型响应更慢，与直连 API 保持同样的 60 秒
-        request.timeoutInterval = 60
+        // 代理用 qwen3.8-max，3 张照片约 30 秒，最多 6 张时更慢；与直连 API 保持同样的 90 秒
+        request.timeoutInterval = 90
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(requestID.uuidString, forHTTPHeaderField: "X-Request-Id")

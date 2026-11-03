@@ -30,6 +30,8 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
     case invalidImage
     case invalidResponse
     case networkUnavailable
+    /// 等满超时仍没有响应：模型还在算，重试只会再等一轮，服务器上那次调用也照样计费
+    case timedOut
     case requestFailed(statusCode: Int, message: String?)
     case correctionRemovedAllItems
 
@@ -49,6 +51,8 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
             "识别服务返回了无法读取的结果，请重试。"
         case .networkUnavailable:
             "网络连接不可用，请检查网络后重试。"
+        case .timedOut:
+            "识别服务响应超时，请稍后重试。照片较多时可以少选几张。"
         case .requestFailed(let statusCode, let message):
             message ?? "识别请求失败（\(statusCode)）。"
         case .correctionRemovedAllItems:
@@ -63,7 +67,7 @@ nonisolated enum FoodAnalysisError: LocalizedError, Sendable {
         case .networkUnavailable:
             true
         case .invalidEndpoint, .missingCredential, .incompleteConfiguration,
-             .visionUnsupported, .invalidImage, .invalidResponse, .correctionRemovedAllItems:
+             .visionUnsupported, .invalidImage, .invalidResponse, .timedOut, .correctionRemovedAllItems:
             false
         }
     }

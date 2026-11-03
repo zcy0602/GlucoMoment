@@ -162,6 +162,64 @@ struct FoodAnalysisServiceTests {
         #expect(body.contains("filename=\"meal-2.jpg\""))
     }
 
+    @Test("代理超时只请求一次，报超时而不是网络不可用")
+    func proxyDoesNotRetryTimeout() async throws {
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [], failingWith: URLError(.timedOut))
+        let service = RemoteFoodAnalysisService(
+            endpoint: try #require(URL(string: "https://proxy.example.com/v1/food/analyze")),
+            installationIdentifier: "test-install",
+            session: session,
+            maximumRetryCount: 2
+        )
+
+        do {
+            _ = try await service.analyze(images: [Data([0x01])], userFoodContext: nil, mealPeriod: nil)
+            Issue.record("应当抛出超时")
+        } catch FoodAnalysisError.timedOut {
+        }
+        #expect(FoodAnalysisURLProtocol.capturedRequests.count == 1)
+    }
+
+    @Test("直连超时只请求一次")
+    func directDoesNotRetryTimeout() async throws {
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [], failingWith: URLError(.timedOut))
+        let service = OpenAICompatibleFoodAnalysisService(
+            apiKey: "sk-test-abcdefghijklmnopqrstuvwxyz",
+            configuration: try #require(OpenAICompatibleConfiguration(
+                provider: .dashScope,
+                baseURL: "https://example.com/v1",
+                model: "qwen3.8-max"
+            )),
+            session: session,
+            maximumRetryCount: 2
+        )
+
+        do {
+            _ = try await service.analyze(images: [Data([0x01])], userFoodContext: nil, mealPeriod: nil)
+            Issue.record("应当抛出超时")
+        } catch FoodAnalysisError.timedOut {
+        }
+        #expect(FoodAnalysisURLProtocol.capturedRequests.count == 1)
+    }
+
+    @Test("断网仍按次数重试，最后报网络不可用")
+    func proxyRetriesConnectionLoss() async throws {
+        let session = FoodAnalysisURLProtocol.makeSession(responses: [], failingWith: URLError(.notConnectedToInternet))
+        let service = RemoteFoodAnalysisService(
+            endpoint: try #require(URL(string: "https://proxy.example.com/v1/food/analyze")),
+            installationIdentifier: "test-install",
+            session: session,
+            maximumRetryCount: 1
+        )
+
+        do {
+            _ = try await service.analyze(images: [Data([0x01])], userFoodContext: nil, mealPeriod: nil)
+            Issue.record("应当抛出网络不可用")
+        } catch FoodAnalysisError.networkUnavailable {
+        }
+        #expect(FoodAnalysisURLProtocol.capturedRequests.count == 2)
+    }
+
     @Test("其他服务商只发送通用字段，不带百炼专有参数")
     func genericProviderRequestBody() async throws {
         let session = FoodAnalysisURLProtocol.makeSession(responses: [(200, try makeChatResponse())])
@@ -631,9 +689,12 @@ struct FoodAnalysisServiceTests {
 private final class FoodAnalysisURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var responses: [(statusCode: Int, data: Data)] = []
     nonisolated(unsafe) static var capturedRequests: [URLRequest] = []
+    /// 设置后每个请求都以这个错误结束，不返回响应
+    nonisolated(unsafe) static var failure: URLError?
 
-    static func makeSession(responses: [(Int, Data)]) -> URLSession {
+    static func makeSession(responses: [(Int, Data)], failingWith failure: URLError? = nil) -> URLSession {
         self.responses = responses.map { (statusCode: $0.0, data: $0.1) }
+        self.failure = failure
         capturedRequests = []
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FoodAnalysisURLProtocol.self]
@@ -645,6 +706,10 @@ private final class FoodAnalysisURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         Self.capturedRequests.append(request)
+        if let failure = Self.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
         let next = Self.responses.isEmpty ? (statusCode: 500, data: Data()) : Self.responses.removeFirst()
         let response = HTTPURLResponse(
             url: request.url!,

@@ -73,6 +73,7 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
                 guard error.isRetryable, attempt < maximumRetryCount else { throw error }
             } catch let error as URLError {
                 lastError = error
+                if error.code == .timedOut { throw FoodAnalysisError.timedOut }
                 guard attempt < maximumRetryCount else { throw FoodAnalysisError.networkUnavailable }
             }
 
@@ -240,7 +241,7 @@ actor OpenAICompatibleFoodAnalysisService: FoodAnalysisService {
 
         var request = URLRequest(url: configuration.chatCompletionsURL)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        request.timeoutInterval = 90
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
