@@ -258,6 +258,53 @@ struct FoodScanViewModelTests {
         #expect(viewModel.selectedMealPeriod == MealPeriod.inferred(for: evening))
     }
 
+    @Test("相机拍的照片在这一餐保存后才存进相册；删掉的和相册选的不存，开关关闭时不存")
+    func savesCameraPhotosToLibraryAfterMealSaved() async throws {
+        let shot1 = try Self.jpeg(.red)
+        let shot2 = try Self.jpeg(.blue)
+        let picked = try Self.jpeg(.green)
+
+        let library = RecordingPhotoLibrary()
+        let viewModel = FoodScanViewModel(
+            analysisService: RecordingFoodAnalysisService(result: Self.result),
+            mealRepository: RecordingMealRepository(),
+            photoStore: InMemoryMealPhotoStore(),
+            photoLibrary: library,
+            savesCameraPhotos: { true }
+        )
+        viewModel.selectPhotos([shot1], fromCamera: true)
+        viewModel.addPhotos([picked])
+        viewModel.addPhotos([shot2], fromCamera: true)
+        viewModel.removePhoto(at: 0)
+        viewModel.result = Self.result
+        viewModel.phase = .needsReview
+        #expect(await library.saved.isEmpty)
+
+        await viewModel.save()
+        #expect(viewModel.phase == .saved)
+        // 存相册在后台进行，稍等它完成
+        for _ in 0..<50 {
+            if await !library.saved.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(await library.saved == [shot2])
+
+        let disabledLibrary = RecordingPhotoLibrary()
+        let disabled = FoodScanViewModel(
+            analysisService: RecordingFoodAnalysisService(result: Self.result),
+            mealRepository: RecordingMealRepository(),
+            photoStore: InMemoryMealPhotoStore(),
+            photoLibrary: disabledLibrary,
+            savesCameraPhotos: { false }
+        )
+        disabled.selectPhotos([shot1], fromCamera: true)
+        disabled.result = Self.result
+        disabled.phase = .needsReview
+        await disabled.save()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await disabledLibrary.saved.isEmpty)
+    }
+
     @Test("上传前的压缩会去掉 EXIF")
     func preparedPhotoHasNoCaptureDate() async throws {
         let photo = try Self.jpeg(.red, exifDate: "2026:10:26 12:30:00", offset: "+08:00")
@@ -361,5 +408,14 @@ private final class RecordingMealRepository: MealRepository {
 
     func delete(id: UUID) async throws {
         savedMeals.removeAll { $0.id == id }
+    }
+}
+
+/// 记录存进相册的照片，代替系统相册
+private actor RecordingPhotoLibrary: PhotoLibrarySaving {
+    private(set) var saved: [Data] = []
+
+    func save(_ photos: [Data], creationDate: Date?) async throws {
+        saved.append(contentsOf: photos)
     }
 }

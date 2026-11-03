@@ -8,13 +8,29 @@ import SwiftUI
 /// 同一餐的多张照片左右滑动查看，右上角显示页码；只有一张时直接显示
 struct MealPhotoPager<Photo: View>: View {
     let photos: [Data]
+    /// 由外部持有当前页时传入（例如点开全屏查看要知道是第几张）；为 nil 时自己记
+    var selection: Binding<Int>?
     @ViewBuilder let photo: (Data) -> Photo
 
-    @State private var page = 0
+    @State private var ownPage = 0
+
+    init(photos: [Data], selection: Binding<Int>? = nil, @ViewBuilder photo: @escaping (Data) -> Photo) {
+        self.photos = photos
+        self.selection = selection
+        self.photo = photo
+    }
+
+    private var pageBinding: Binding<Int> {
+        selection ?? $ownPage
+    }
+
+    private var page: Int {
+        pageBinding.wrappedValue
+    }
 
     var body: some View {
         if photos.count > 1 {
-            TabView(selection: $page) {
+            TabView(selection: pageBinding) {
                 ForEach(Array(photos.enumerated()), id: \.offset) { index, data in
                     photo(data)
                         .tag(index)
@@ -32,7 +48,7 @@ struct MealPhotoPager<Photo: View>: View {
                     .accessibilityLabel("第 \(min(page, photos.count - 1) + 1) 张，共 \(photos.count) 张")
             }
             .onChange(of: photos.count) { _, count in
-                page = min(page, max(count - 1, 0))
+                pageBinding.wrappedValue = min(page, max(count - 1, 0))
             }
         } else if let first = photos.first {
             photo(first)

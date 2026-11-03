@@ -11,6 +11,7 @@ struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @AppStorage(InterfacePreference.redesignKey) private var usesRedesign = true
+    @AppStorage(CameraPhotoSavingPreference.key) private var savesCameraPhotos = true
     @State private var isShowingReviewConsent = false
     @State private var isShowingGlucoseTarget = false
 
@@ -98,6 +99,14 @@ struct SettingsView: View {
                 Text("AI")
             } footer: {
                 Text("AI 复盘会把最近 14 天的餐后血糖摘要发给当前的识别服务，不发送照片。关闭时删除本机保存的复盘。")
+            }
+
+            Section {
+                Toggle(isOn: $savesCameraPhotos) {
+                    row(icon: "photo.on.rectangle", tint: .orange, title: "拍照后保存到相册") { EmptyView() }
+                }
+            } footer: {
+                Text("在这里用相机拍的照片，保存这一餐时会在系统相册里也存一份原图。")
             }
 
             Section {

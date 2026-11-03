@@ -16,11 +16,15 @@ final class FoodScanViewModel {
     private let analysisService: any FoodAnalysisService
     private let mealRepository: any MealRepository
     private let photoStore: any MealPhotoStoring
+    private let photoLibrary: any PhotoLibrarySaving
+    private let savesCameraPhotos: () -> Bool
     private var analysisTask: Task<Void, Never>?
     /// 与 `selectedPhotos` 一一对应的压缩结果；照片增删后清空，下次识别或保存时重新生成
     private var preparedPhotos: [Data] = []
     /// 每次增删照片时递增，用来判断压缩结果是否仍对应当前照片
     private var photoRevision = 0
+    /// 用 App 内相机拍的照片及拍摄时间；这一餐保存成功后才存进系统相册，删掉的照片不存
+    private var cameraPhotos: [(data: Data, takenAt: Date)] = []
 
     let maxPhotoCount = FoodAnalysisImageLimit.maxImageCount
 
@@ -53,11 +57,15 @@ final class FoodScanViewModel {
         analysisService: any FoodAnalysisService,
         mealRepository: any MealRepository,
         photoStore: any MealPhotoStoring,
+        photoLibrary: any PhotoLibrarySaving = SystemPhotoLibrary(),
+        savesCameraPhotos: (() -> Bool)? = nil,
         referenceDate: Date = .now
     ) {
         self.analysisService = analysisService
         self.mealRepository = mealRepository
         self.photoStore = photoStore
+        self.photoLibrary = photoLibrary
+        self.savesCameraPhotos = savesCameraPhotos ?? { CameraPhotoSavingPreference.isEnabled() }
         selectedMealPeriod = MealPeriod.inferred(for: referenceDate)
         eatenAt = referenceDate
     }
@@ -163,12 +171,14 @@ final class FoodScanViewModel {
     static let captureDateFutureTolerance: TimeInterval = 5 * 60
 
     /// 开始记录新的一餐：替换全部照片并清空描述和结果。
-    /// 用餐时间优先取最早一张照片的拍摄时间，读不到或不合理时用选图时间
-    func selectPhotos(_ photos: [Data], referenceDate: Date = .now) {
+    /// 用餐时间优先取最早一张照片的拍摄时间，读不到或不合理时用选图时间。
+    /// `fromCamera` 为 true 表示是 App 内相机刚拍的，保存这一餐时一并存进系统相册
+    func selectPhotos(_ photos: [Data], fromCamera: Bool = false, referenceDate: Date = .now) {
         guard !photos.isEmpty else { return }
 
         cancelAnalysis()
         selectedPhotos = Array(photos.prefix(maxPhotoCount))
+        cameraPhotos = fromCamera ? selectedPhotos.map { ($0, referenceDate) } : []
         photoRevision += 1
         preparedPhotos = []
         let captureDate = Self.plausibleCaptureDate(of: selectedPhotos, referenceDate: referenceDate)
@@ -185,12 +195,16 @@ final class FoodScanViewModel {
     }
 
     /// 为同一餐追加照片，保留已填写的描述；已有的识别结果作废，需要重新识别
-    func addPhotos(_ photos: [Data]) {
+    func addPhotos(_ photos: [Data], fromCamera: Bool = false) {
         let accepted = photos.prefix(remainingPhotoSlots)
         guard !accepted.isEmpty else { return }
 
         cancelAnalysis()
         selectedPhotos.append(contentsOf: accepted)
+        if fromCamera {
+            let now = Date.now
+            cameraPhotos.append(contentsOf: accepted.map { ($0, now) })
+        }
         photoRevision += 1
         invalidateAnalysis()
     }
@@ -199,7 +213,10 @@ final class FoodScanViewModel {
         guard selectedPhotos.indices.contains(index) else { return }
 
         cancelAnalysis()
-        selectedPhotos.remove(at: index)
+        let removed = selectedPhotos.remove(at: index)
+        if let cameraIndex = cameraPhotos.firstIndex(where: { $0.data == removed }) {
+            cameraPhotos.remove(at: cameraIndex)
+        }
         photoRevision += 1
         if selectedPhotos.isEmpty {
             preparedPhotos = []
@@ -310,6 +327,7 @@ final class FoodScanViewModel {
             )
             try await mealRepository.save(meal)
             phase = .saved
+            saveCameraPhotosToLibrary()
         } catch is CancellationError {
             if let savedFilename {
                 await photoStore.delete(filename: savedFilename)
@@ -320,6 +338,21 @@ final class FoodScanViewModel {
                 await photoStore.delete(filename: savedFilename)
             }
             phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// 这一餐保存成功后，把相机拍的原图存进系统相册，像系统相机一样留一份。
+    /// 在后台进行，不影响保存结果；没有权限或失败时静默跳过
+    private func saveCameraPhotosToLibrary() {
+        let photos = cameraPhotos
+        cameraPhotos = []
+        guard !photos.isEmpty, savesCameraPhotos() else { return }
+
+        let library = photoLibrary
+        Task {
+            for photo in photos {
+                try? await library.save([photo.data], creationDate: photo.takenAt)
+            }
         }
     }
 

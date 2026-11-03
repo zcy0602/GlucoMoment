@@ -7,21 +7,45 @@ import SwiftUI
 
 // 识别结果页和餐食详情页共用的几个区块。只接收基本数据，不依赖 ViewModel
 
-/// 页面顶部的大照片，多张时左右滑动
+/// 页面顶部的大照片，多张时左右滑动；点按全屏查看，长按可以保存、分享、拷贝
 struct MealPhotoHeader: View {
     let photos: [Data]
     var height: CGFloat = 280
 
+    @State private var page = 0
+    @State private var isShowingViewer = false
+    @State private var saving = PhotoSaveFeedback()
+    @Namespace private var namespace
+
+    private static let cornerRadius: CGFloat = 28
+
     var body: some View {
-        MealPhotoPager(photos: photos) { data in
+        MealPhotoPager(photos: photos, selection: $page) { data in
             Color.clear
                 .overlay { PhotoDataImage(data: data) }
                 .clipped()
+                .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+                .contextMenu {
+                    MealPhotoActionButtons(data: data) { saving.save(data) }
+                }
         }
         .frame(height: height)
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .onTapGesture {
+            guard !photos.isEmpty else { return }
+            isShowingViewer = true
+        }
+        .matchedTransitionSource(id: "mealPhoto", in: namespace)
+        .photoSaveFeedback(saving)
+        .fullScreenCover(isPresented: $isShowingViewer) {
+            MealPhotoViewer(photos: photos, page: $page)
+                .navigationTransition(.zoom(sourceID: "mealPhoto", in: namespace))
+        }
         .accessibilityLabel(photos.count > 1 ? "\(photos.count) 张餐食照片" : "餐食照片")
+        .accessibilityHint("点按查看大图，长按可保存或分享")
+        .accessibilityAddTraits(.isButton)
     }
 }
 

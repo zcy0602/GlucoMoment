@@ -31,6 +31,8 @@ extension View {
 private struct CapturedMealPhotos: Identifiable {
     let id = UUID()
     let photos: [Data]
+    /// 是否是 App 内相机刚拍的；保存这一餐时会存进系统相册
+    var fromCamera = false
 }
 
 private struct MealCaptureLauncher: ViewModifier {
@@ -80,13 +82,14 @@ private struct MealCaptureLauncher: ViewModifier {
             }
             .fullScreenCover(isPresented: $isShowingCamera) {
                 CameraCaptureView { data in
-                    captured = CapturedMealPhotos(photos: [data])
+                    captured = CapturedMealPhotos(photos: [data], fromCamera: true)
                 }
                 .ignoresSafeArea()
             }
             .sheet(item: $captured) { captured in
                 MealCaptureView(
                     photos: captured.photos,
+                    fromCamera: captured.fromCamera,
                     dependencies: dependencies,
                     onSaved: onSaved
                 )

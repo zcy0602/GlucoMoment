@@ -22,13 +22,13 @@ struct MealCaptureView: View {
     @State private var savedCount = 0
     let onSaved: () -> Void
 
-    init(photos: [Data], dependencies: AppDependencies, onSaved: @escaping () -> Void) {
+    init(photos: [Data], fromCamera: Bool = false, dependencies: AppDependencies, onSaved: @escaping () -> Void) {
         let viewModel = FoodScanViewModel(
             analysisService: dependencies.foodAnalysisService,
             mealRepository: dependencies.mealRepository,
             photoStore: dependencies.mealPhotoStore
         )
-        viewModel.selectPhotos(photos)
+        viewModel.selectPhotos(photos, fromCamera: fromCamera)
         _viewModel = State(initialValue: viewModel)
         self.onSaved = onSaved
     }
@@ -137,7 +137,7 @@ struct MealCaptureView: View {
         }
         .fullScreenCover(isPresented: $isShowingCamera) {
             CameraCaptureView { data in
-                withAnimation(.snappy) { viewModel.addPhotos([data]) }
+                withAnimation(.snappy) { viewModel.addPhotos([data], fromCamera: true) }
             }
             .ignoresSafeArea()
         }
