@@ -22,6 +22,9 @@ import {
   CORRECTION_SYSTEM_PROMPT,
   REVIEW_SYSTEM_PROMPT,
   resolveProvider,
+  resolveFoodModel,
+  resolveReviewModel,
+  buildHealthPayload,
   buildUserPrompt,
   buildUserContent,
   buildCorrectionUserPrompt,
@@ -44,6 +47,7 @@ function loadConfig(): CoreConfig {
   return {
     FOOD_AI_PROVIDER: (process.env.FOOD_AI_PROVIDER as "qwen" | "glm") || "qwen",
     FOOD_AI_MODEL: process.env.FOOD_AI_MODEL,
+    REVIEW_AI_MODEL: process.env.REVIEW_AI_MODEL,
     AI_BASE_URL: process.env.AI_BASE_URL,
     QWEN_API_KEY: process.env.QWEN_API_KEY,
     GLM_API_KEY: process.env.GLM_API_KEY,
@@ -144,9 +148,12 @@ async function callModel(
   requestId: string,
   maxTokens: number,
   temperature = 0.1,
+  model?: string,
 ): Promise<{ content: string; provider: string; model: string }> {
   const provider = config.FOOD_AI_PROVIDER || "qwen";
   const providerConfig = resolveProvider(provider as "qwen" | "glm", config);
+  // 不传 model 时与原来一样，用 FOOD_AI_MODEL
+  const modelName = model || providerConfig.model;
 
   const upstreamResponse = await fetch(providerConfig.baseURL, {
     method: "POST",
@@ -156,7 +163,7 @@ async function callModel(
       "X-Client-Request-Id": requestId,
     },
     body: JSON.stringify({
-      model: providerConfig.model,
+      model: modelName,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
@@ -181,7 +188,7 @@ async function callModel(
   if (!content) {
     throw new UpstreamError(502, "模型没有返回可用结果。");
   }
-  return { content, provider, model: providerConfig.model };
+  return { content, provider, model: modelName };
 }
 
 function sendError(
@@ -202,12 +209,7 @@ function sendError(
 // ---- 路由 ----
 
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    promptVersion: PROMPT_VERSION,
-    correctionPromptVersion: CORRECTION_PROMPT_VERSION,
-    reviewPromptVersion: REVIEW_PROMPT_VERSION,
-  });
+  res.json(buildHealthPayload(config));
 });
 
 app.post("/v1/food/analyze", (req: Request, res: Response) => {
@@ -330,6 +332,7 @@ app.post("/v1/review/recent", (req: Request, res: Response) => {
         requestId,
         1200,
         REVIEW_TEMPERATURE,
+        resolveReviewModel(config.FOOD_AI_PROVIDER || "qwen", config),
       );
 
       res.json({
@@ -356,7 +359,7 @@ app.use((_req: Request, res: Response) => {
 app.listen(port, () => {
   console.log(`稳糖食刻食物识别代理已启动 → http://localhost:${port}`);
   console.log(`Provider: ${config.FOOD_AI_PROVIDER || "qwen"}`);
-  console.log(
-    `Model: ${config.FOOD_AI_MODEL || (config.FOOD_AI_PROVIDER === "glm" ? "glm-4.6v-flash" : "qwen3.7-plus")}`,
-  );
+  const provider = config.FOOD_AI_PROVIDER || "qwen";
+  console.log(`Model: ${resolveFoodModel(provider, config)}`);
+  console.log(`Review model: ${resolveReviewModel(provider, config)}`);
 });

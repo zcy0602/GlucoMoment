@@ -4,7 +4,7 @@
 
 ## 接口
 
-- `GET /health`：健康检查，不调用模型。
+- `GET /health`：健康检查，不调用模型。返回中的 `reviewModel` 是复盘实际使用的模型名，可用来确认 `REVIEW_AI_MODEL` 是否生效。
 - `POST /v1/food/analyze`：`multipart/form-data`，图片字段名为 `image`，可重复 1～6 次，按顺序作为同一餐的多张照片。
 - `POST /v1/food/correct`：一句话修正，`multipart/form-data`。字段 `instruction`（本次说明，最多 200 字）、`currentResult`（当前记录 JSON，含用户手动修改）、`history`（之前的修正 JSON 数组，最多取最近 10 轮），以及 `userFoodContext`、`mealPeriod`、`locale`；`image` 可选，0～6 张。代理同样不保存会话，返回 `reply`、`updatedItems`（带 `ref`）、`addedItems`、`removedRefs`、`followUpQuestions`，由 App 合并到当前记录。地址由识别地址末尾的 `analyze` 换成 `correct` 得到。
 - `POST /v1/review/recent`：近期复盘，`multipart/form-data`，不接受照片。字段 `payload` 是 App 在本地整理好的 JSON（每餐的餐后指标、曲线和分组比较，最大 64KB），代理只检查结构，然后原样交给模型。返回最多 3 条 `items`，每条包含 `text`、`mealIds`、`comparisonIds`、`guidelineId`。`text` 里的数字是 `{M1.peakRise}` 这样的占位符，由 App 校验后填入本地数值。地址由识别地址末尾的 `food/analyze` 换成 `review/recent` 得到。
@@ -44,9 +44,19 @@ copy .env.example .env
 PORT=8787
 FOOD_AI_PROVIDER=qwen
 FOOD_AI_MODEL=qwen3.7-plus
+REVIEW_AI_MODEL=qwen3.8-max
 AI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 QWEN_API_KEY=你的阿里云API-Key
 ```
+
+模型变量：
+
+| 变量 | 用于 | 不设置时 |
+| --- | --- | --- |
+| `FOOD_AI_MODEL` | 识别（`/v1/food/analyze`）和一句话修正（`/v1/food/correct`） | qwen 用 `qwen3.7-plus`，glm 用 `glm-4.6v-flash` |
+| `REVIEW_AI_MODEL` | 近期复盘（`/v1/review/recent`） | 与 `FOOD_AI_MODEL` 相同 |
+
+复盘推荐 `REVIEW_AI_MODEL=qwen3.8-max`：真机对比中它比 `qwen3.7-plus` 更少说错，校验通过率更高；识别继续用 `qwen3.7-plus` 即可。不加这一行时，复盘和识别用同一个模型，行为与以前一致。复盘模型须与识别使用同一个供应商（同一个 `AI_BASE_URL` 和 API Key）。
 
 ### 3. 验证
 
@@ -54,13 +64,13 @@ QWEN_API_KEY=你的阿里云API-Key
 node dist/server.js
 ```
 
-确认输出 `稳糖食刻食物识别代理已启动 → http://localhost:8787`。
+确认输出 `稳糖食刻食物识别代理已启动 → http://localhost:8787`，以及 `Model:`（识别模型）和 `Review model:`（复盘模型）两行。
 
 健康检查：
 
 ```powershell
 curl http://localhost:8787/health
-# → {"status":"ok","promptVersion":"food-analysis-v2","correctionPromptVersion":"food-correction-v1","reviewPromptVersion":"meal-review-v3"}
+# → {"status":"ok","promptVersion":"food-analysis-v2","correctionPromptVersion":"food-correction-v1","reviewPromptVersion":"meal-review-v3","reviewModel":"qwen3.8-max"}
 ```
 
 ### 4. 注册 Windows Service（开机自启 + 崩溃重启）
@@ -140,12 +150,16 @@ npm run dev:server
 
 # 类型检查
 npm run typecheck
+
+# 测试（模型选择与 /health）
+npm test
 ```
 
 ## 代码结构
 
 ```
 src/
-├── core.ts     # 提示词、模型调用与输出校验
-└── server.ts   # Node.js Express 入口
+├── core.ts       # 提示词、模型选择与输出校验
+├── core.test.ts  # 模型选择与 /health 的测试
+└── server.ts     # Node.js Express 入口
 ```
