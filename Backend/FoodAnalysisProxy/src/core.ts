@@ -4,6 +4,8 @@
 export interface CoreConfig {
   FOOD_AI_PROVIDER?: "qwen" | "glm";
   FOOD_AI_MODEL?: string;
+  /** 复盘接口单独使用的模型；不设置时沿用 FOOD_AI_MODEL */
+  REVIEW_AI_MODEL?: string;
   AI_BASE_URL?: string;
   QWEN_API_KEY?: string;
   GLM_API_KEY?: string;
@@ -536,6 +538,35 @@ export interface ResolvedProvider {
   baseURL: string;
 }
 
+// 识别和一句话修正使用的模型
+export function resolveFoodModel(
+  provider: "qwen" | "glm",
+  config: CoreConfig,
+): string {
+  return (
+    config.FOOD_AI_MODEL || (provider === "glm" ? "glm-4.6v-flash" : "qwen3.7-plus")
+  );
+}
+
+// 复盘使用的模型：设置了 REVIEW_AI_MODEL 就用它，否则与识别相同
+export function resolveReviewModel(
+  provider: "qwen" | "glm",
+  config: CoreConfig,
+): string {
+  return config.REVIEW_AI_MODEL || resolveFoodModel(provider, config);
+}
+
+// GET /health 的返回内容，不调用模型
+export function buildHealthPayload(config: CoreConfig) {
+  return {
+    status: "ok",
+    promptVersion: PROMPT_VERSION,
+    correctionPromptVersion: CORRECTION_PROMPT_VERSION,
+    reviewPromptVersion: REVIEW_PROMPT_VERSION,
+    reviewModel: resolveReviewModel(config.FOOD_AI_PROVIDER || "qwen", config),
+  };
+}
+
 export function resolveProvider(
   provider: "qwen" | "glm",
   config: CoreConfig,
@@ -544,7 +575,7 @@ export function resolveProvider(
     if (!config.GLM_API_KEY) throw new Error("Missing GLM_API_KEY");
     return {
       apiKey: config.GLM_API_KEY,
-      model: config.FOOD_AI_MODEL || "glm-4.6v-flash",
+      model: resolveFoodModel(provider, config),
       baseURL:
         config.AI_BASE_URL ||
         "https://open.bigmodel.cn/api/paas/v4/chat/completions",
@@ -554,7 +585,7 @@ export function resolveProvider(
   if (!config.QWEN_API_KEY) throw new Error("Missing QWEN_API_KEY");
   return {
     apiKey: config.QWEN_API_KEY,
-    model: config.FOOD_AI_MODEL || "qwen3.7-plus",
+    model: resolveFoodModel(provider, config),
     baseURL:
       config.AI_BASE_URL ||
       "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
